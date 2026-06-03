@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # 1. База даних PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: syllabus-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: rootpassword
+      POSTGRES_DB: syllabus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d syllabus_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. ML-сервіс (Python)
+  ml-service:
+    build:
+      context: ./ml-bert-service
+      dockerfile: Dockerfile
+    container_name: syllabus-ml
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      # Монтуємо папку data, щоб донавчені моделі зберігалися при перезапуску
+      - ./ml-bert-service/data:/app/data
+
+  # 3. Бекенд (NestJS)
+  backend:
+    build:
+      context: ./syllabus-gateway
+      dockerfile: Dockerfile
+    container_name: syllabus-backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      # URL для підключення до БД (вказуємо ім'я контейнера postgres)
+      - DATABASE_URL=postgresql://root:rootpassword@postgres:5432/syllabus_db?schema=public
+      # URL ML-сервісу (вказуємо ім'я контейнера ml-service)
+      - ML_SERVICE_URL=http://ml-service:8000
+      - JWT_SECRET=super_secret_key_for_diploma
+      - JWT_REFRESH_SECRET=super_secret_refresh_key
+    volumes:
+      # Монтуємо папку uploads, щоб завантажені PDF-файли не зникали
+      - ./syllabus-gateway/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy # Чекаємо, поки БД повністю запуститься
+      ml-service:
+        condition: service_started
+
+  # 4. Фронтенд (React)
+  frontend:
+    build:
+      context: ./syllabus-frontend
+      dockerfile: Dockerfile
+    container_name: syllabus-frontend
+    restart: always
+    ports:
+      - "3001:80" # Nginx всередині контейнера працює на порту 80, ми прокидаємо його на 3001
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

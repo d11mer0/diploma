@@ -1,0 +1,27 @@
+[
+  {
+    "query": "We need a developer who can create REST APIs for our new mobile application.",
+    "expected_ids": ["B.1-3", "B.4-3"],
+    "comment": "Focus on Application Development (B.1) and Component Design (B.4) at level 3."
+  },
+  {
+    "query": "The candidate must be able to analyze large datasets and present findings using data visualization tools.",
+    "expected_ids": ["D.7-3", "D.10-3"],
+    "comment": "Focus on Data Science (D.7) and Information Management (D.10) at level 3."
+  },
+  {
+    "query": "Looking for a specialist to manage and secure our cloud infrastructure on AWS.",
+    "expected_ids": ["C.4-4", "E.8-4"],
+    "comment": "Focus on Problem Management (C.4) and Information Security (E.8) at level 4."
+  },
+  {
+    "query": "A person responsible for testing the system, finding bugs, and writing test reports.",
+    "expected_ids": ["B.3-2", "B.3-3"],
+    "comment": "Core testing competency (B.3) at levels 2 and 3."
+  },
+  {
+    "query": "Develop a strategic plan for digital transformation of the company.",
+    "expected_ids": ["A.1-5", "E.7-5"],
+    "comment": "High-level strategy (A.1) and Business Change Management (E.7) at level 5."
+  }
+]

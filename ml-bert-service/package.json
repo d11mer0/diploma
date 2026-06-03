@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "pdf-parse": "^2.4.5",
+    "react-router-dom": "^7.15.1"
+  }
+}

@@ -1,0 +1,27 @@
+[
+  "javascript", "typescript", "react", "angular", "vue", "svelte", "html", "css", "sass", "less", "tailwind", "bootstrap", "next.js", "nuxt", "gatsby", "redux", "mobx", "webpack", "vite", "babel", "material-ui", "ant-design",
+  
+  "python", "java", "c#", "c++", "c", "go", "golang", "ruby", "php", "rust", "scala", "node.js", "elixir", "erlang", "clojure", "haskell",
+  "django", "flask", "fastapi", "spring", "spring boot", "laravel", "symfony", "express", "nestjs", "koa", ".net", "asp.net", "ruby on rails", "phoenix",
+  
+  "sql", "mysql", "postgresql", "postgres", "mongodb", "nosql", "oracle", "redis", "elasticsearch", "cassandra", "dynamodb", "mariadb", "sqlite", "couchdb", "neo4j", "firebase", "supabase", "prisma", "typeorm", "sequelize",
+  
+  "aws", "azure", "gcp", "google cloud", "docker", "kubernetes", "k8s", "terraform", "ansible", "chef", "puppet", "helm", "jenkins", "gitlab", "github actions", "bitbucket", "linux", "ubuntu", "bash", "shell", "nginx", "apache", "prometheus", "grafana", "elk", "splunk", "datadog", "argocd", "travis ci", "circleci",
+  "cloud", "cloud infrastructure", "security",
+
+  "microservices", "rest", "graphql", "grpc", "api", "kafka", "rabbitmq", "activemq", "celery", "ci/cd", "serverless", "mvc", "oop", "solid", "dry", "kiss", "tdd", "bdd", "ddd",
+  
+  "machine learning", "ai", "deep learning", "pandas", "numpy", "tensorflow", "pytorch", "keras", "scikit-learn", "xgboost", "opencv", "matplotlib", "seaborn", "spark", "hadoop", "airflow", "dbt", "snowflake", "bigquery", "redshift", "nlp", "llm", "langchain", "huggingface",
+  
+  "ios", "android", "swift", "kotlin", "flutter", "react native", "dart", "objective-c", "xamarin", "ionic",
+  
+  "jest", "cypress", "selenium", "puppeteer", "playwright", "mocha", "chai", "junit", "pytest", "postman", "swagger", "openapi",
+  
+  "oauth", "jwt", "saml", "iam", "ssl/tls", "tcp/ip", "dns", "vpn", "firewall", "owasp", "cryptography",
+  
+  "unity", "unreal engine", "blender", "webgl", "three.js",
+  
+  "blockchain", "web3", "smart contracts", "solidity", "ethereum", "bitcoin",
+  
+  "git", "jira", "confluence", "trello", "asana", "agile", "scrum", "kanban", "figma", "sketch", "adobe xd"
+]

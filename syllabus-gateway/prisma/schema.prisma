@@ -1,0 +1,73 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  passwordHash     String
+  refreshTokenHash String?
+  role             Role       @default(USER)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  syllabi          Syllabus[]
+}
+
+model Syllabus {
+  id               String            @id @default(uuid())
+  title            String
+  educationLevel   String
+  threshold        Float?
+  filePath         String?
+  originalFilename String?           // НОВЕ ПОЛЕ: Для збереження оригінальної назви файлу
+  uploadedAt       DateTime          @default(now())
+  user             User              @relation(fields: [userId], references: [id])
+  userId           String
+  outcomes         LearningOutcome[]
+}
+
+model LearningOutcome {
+  id             String          @id @default(uuid())
+  originalText   String
+  technologies   String[]
+  bloomLevels    Int[]
+  syllabus       Syllabus        @relation(fields: [syllabusId], references: [id])
+  syllabusId     String
+  mappingResults MappingResult[]
+}
+
+model CompetenceECF {
+  id          String          @id
+  code        String
+  name        String
+  description String
+  level       Int
+  levelId     Int             @unique
+  mappings    MappingResult[]
+}
+
+model MappingResult {
+  id                 String          @id @default(uuid())
+  outcome            LearningOutcome @relation(fields: [outcomeId], references: [id])
+  outcomeId          String
+  competence         CompetenceECF   @relation(fields: [competenceId], references: [id])
+  competenceId       String
+  semanticSimilarity Float
+  finalScore         Float
+  expertValidated    Boolean         @default(false)
+  usedForTraining    Boolean         @default(false)
+}
+
+enum Role {
+  USER
+  EXPERT
+  ADMIN
+}

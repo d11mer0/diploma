@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+transformers
+torch
+numpy
+pydantic
+requests
+sentence-transformers
+spacy
+datasets
+accelerate

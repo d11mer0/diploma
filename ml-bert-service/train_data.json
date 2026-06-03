@@ -1,0 +1,14 @@
+{
+  "samples": [
+    {
+      "query": "Looking for a specialist to manage and secure our cloud infrastructure on AWS.",
+      "positive": "Manages information and systems security policy accounting for technical, human, organisational and other relevant threats. (Competency E.8)",
+      "negative": "Builds the required networks/network connections, components and interfaces. (Competency B.6)"
+    },
+    {
+      "query": "Develop a strategic plan for digital transformation of the company.",
+      "positive": "Provides strategic leadership for extensive interrelated programmes of work to ensure that Information Technology is a change enabling agent. (Competency E.7, Level 5)",
+      "negative": "Evaluates change requirements and exploits specialist skills to identify possible methods and standards that can be deployed. (Competency E.7, Level 3)"
+    }
+  ]
+}
