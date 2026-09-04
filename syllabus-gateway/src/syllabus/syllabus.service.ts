@@ -151,15 +151,18 @@ export class SyllabusService {
     filePath: string | null,
     originalFilename: string | null,
   ): Promise<AnalysisResponse> {
-    const truncatedText = syllabusText.substring(0, 10000);
+    const MAX_SYLLABUS_CHARS = 40000;
+    const truncatedText = syllabusText.length > MAX_SYLLABUS_CHARS 
+      ? syllabusText.substring(0, MAX_SYLLABUS_CHARS) 
+      : syllabusText;
     
     let textToAnalyze = truncatedText;
     try {
-      console.log('Починаємо переклад тексту...');
+      console.log(`Починаємо переклад тексту (довжина: ${truncatedText.length} символів)...`);
       textToAnalyze = await translate(truncatedText, 'en');
       console.log('Переклад успішно завершено.');
     } catch (error) {
-      console.error('Помилка при перекладі тексту. Використовуємо оригінальний текст.', error);
+      console.error('Помилка або ліміт при перекладі тексту. Використовуємо оригінальний текст (ML-сервіс підтримує українські терміни).', error);
       textToAnalyze = truncatedText;
     }
     

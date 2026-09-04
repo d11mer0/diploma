@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 import config
+from preprocess import chunk_text, clean_text
 from model import BertEmbeddingModel
 from ecf_loader import ECFEmbeddingStore
 from utils import cosine_similarity_vec
@@ -56,22 +57,43 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
     found_techs = features["techs"]
     found_bloom_levels = features["bloom_levels"]
 
-    query_emb = MODEL.embed(text)
+    # 1. Розбиваємо весь документ на смислові чанки (без обмеження у 1000 символів на весь файл!)
+    chunks = chunk_text(text, chunk_size=1000, chunk_overlap=200)
+    if not chunks:
+        chunks = [text]
+
+    # 2. Отримуємо ембеддінги всіх чанків батчем
+    chunk_embeddings = MODEL.embed_batch(chunks)
     mappings = ECF_STORE.get_all_mappings()
     
+    # 3. Max-Passage Retrieval (MaxP): для кожної компетенції шукаємо найбільш релевантний пасаж у тексті
     retrieval_candidates = []
     for m in mappings:
-        score = cosine_similarity_vec(query_emb, m["combined_emb"])
-        retrieval_candidates.append({"score": score, "mapping": m})
+        best_score = -1.0
+        best_chunk = chunks[0]
+        for i, c_emb in enumerate(chunk_embeddings):
+            score = cosine_similarity_vec(c_emb, m["combined_emb"])
+            if score > best_score:
+                best_score = score
+                best_chunk = chunks[i]
+
+        retrieval_candidates.append({
+            "score": best_score, 
+            "mapping": m, 
+            "best_chunk": best_chunk
+        })
     
     retrieval_candidates.sort(key=lambda x: x["score"], reverse=True)
     top_candidates = retrieval_candidates[:config.RERANK_TOP_K]
 
-    doc_texts = [
-        f"Competency: {c['mapping']['competency_name']}. Description: {c['mapping']['competency_description']}. Level: {c['mapping']['level_description']}"
-        for c in top_candidates
-    ]
-    cross_scores = MODEL.cross_score(text, doc_texts)
+    # 4. Cross-Encoder: оцінюємо пару (знайдений конкретний пасаж силабусу + опис компетенції)
+    cross_pairs = []
+    for c in top_candidates:
+        m = c["mapping"]
+        doc_text = f"Competency: {m['competency_name']}. Description: {m['competency_description']}. Level: {m['level_description']}"
+        cross_pairs.append([c["best_chunk"], doc_text])
+
+    cross_scores = MODEL.cross_score_pairs(cross_pairs)
 
     final_results = []
     for i, candidate in enumerate(top_candidates):
@@ -88,6 +110,10 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
 
         final_score = (c1_score * config.W_SEMANTIC) + (c2_score * config.W_TECH) + (c3_score * config.W_BLOOM)
 
+        snippet = candidate["best_chunk"]
+        if len(snippet) > 250:
+            snippet = snippet[:250].rsplit(' ', 1)[0] + "..."
+
         final_results.append({
             "competency_id": m["competency_id"],
             "competency_code": m["competency_code"],
@@ -101,7 +127,8 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
                 "c1_semantic": round(c1_score * config.W_SEMANTIC, 4),
                 "c2_tech": round(c2_score * config.W_TECH, 4),
                 "c3_bloom": round(c3_score * config.W_BLOOM, 4),
-                "raw_cross_score": round(c1_score, 4)
+                "raw_cross_score": round(c1_score, 4),
+                "matched_snippet": snippet
             }
         })
 
@@ -113,7 +140,9 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
         final_results = final_results[:top_k]
 
     return {
-        "text": text, 
+        "text": text[:500] + ("..." if len(text) > 500 else ""), 
+        "total_chars_analyzed": len(text),
+        "chunks_analyzed": len(chunks),
         "extracted_features": {
             "technologies": found_techs,
             "detected_bloom_levels": found_bloom_levels
@@ -164,7 +193,9 @@ def get_model_info():
     }
 
 def extract_linguistic_features(text: str) -> dict:
-    doc = nlp(text.lower())
+    cleaned = clean_text(text)
+    # spaCy nlp ліміт за замовчуванням 1_000_000 символів; беремо до 100_000
+    doc = nlp(cleaned.lower()[:100000])
     found_techs = set()
     found_levels = set()
     
@@ -175,8 +206,11 @@ def extract_linguistic_features(text: str) -> dict:
         
     for token in doc:
         lemma_lower = token.lemma_.lower()
+        text_lower = token.text.lower()
         if lemma_lower in BLOOM_DICT:
             found_levels.add(BLOOM_DICT[lemma_lower])
+        elif text_lower in BLOOM_DICT:
+            found_levels.add(BLOOM_DICT[text_lower])
             
     return {
         "techs": list(found_techs),

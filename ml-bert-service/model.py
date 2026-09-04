@@ -42,14 +42,22 @@ class BertEmbeddingModel:
             return []
             
         pairs = [[query, doc] for doc in documents]
-        
-        # Отримуємо готові відсотки
+        return self.cross_score_pairs(pairs)
+
+    def cross_score_pairs(self, pairs: list[list[str]]) -> list[float]:
+        """
+        Попарна оцінка Cross-Encoder (пасаж + компетенція).
+        """
+        if not pairs:
+            return []
+            
         scores = self.cross_encoder.predict(pairs)
         
-        if isinstance(scores, float) or scores.ndim == 0:
+        if isinstance(scores, float) or getattr(scores, 'ndim', 0) == 0:
             scores = [scores]
             
         return [float(score) for score in scores]
+
 
     def load_finetuned(self, path: str):
         if os.path.exists(path):
