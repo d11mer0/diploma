@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer, InputExample, losses
 from .dataset_builder import build_training_triplets
 from .schema import FineTuneSample
 
-def run_finetuning(samples: list[FineTuneSample], output_dir="models/fine_tuned_sbert"):
+def run_finetuning(samples: list[FineTuneSample], output_dir="models/fine_tuned_sbert", base_model_path: str = None):
     # 1. Отримуємо розбиті дані з нашого оновленого dataset_builder
     anchors, positives, negatives = build_training_triplets(samples)
 
@@ -21,10 +21,16 @@ def run_finetuning(samples: list[FineTuneSample], output_dir="models/fine_tuned_
     # 3. Створюємо DataLoader
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=4)
 
-    # 4. Завантажуємо модель
-    # Тепер модель буде завантажуватися з config.py, який ми щойно відкотили
-    model_name = output_dir if os.path.exists(output_dir) else "all-MiniLM-L6-v2" # Повертаємося до MiniLM
-    print(f"Завантаження моделі для донавчання: {model_name}...")
+    # 4. Завантажуємо модель для неперервного донавчання (Continual Active Learning)
+    # Якщо передано base_model_path і директорія існує – стартуємо з неї, інакше з базової MiniLM
+    if base_model_path and (os.path.exists(base_model_path) or not os.path.isabs(base_model_path)):
+        model_name = base_model_path
+    elif os.path.exists(output_dir):
+        model_name = output_dir
+    else:
+        model_name = "all-MiniLM-L6-v2"
+
+    print(f"[Continual Learning] Завантаження вихідної моделі: {model_name}...")
     model = SentenceTransformer(model_name)
 
     # 5. Визначаємо функцію втрат (Contrastive Learning - TripletLoss)

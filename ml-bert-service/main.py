@@ -147,7 +147,51 @@ TECH_DOMAIN_MAP = {
     "cloud": ["B.4", "C.1", "A.5"],
     "devops": ["B.4", "C.1"],
     "linux": ["C.1", "B.4"],
-    "git": ["B.1", "B.2", "B.4"]
+    "git": ["B.1", "B.2", "B.4"],
+
+    # Ukrainian Domain Mappings (Двомовний тезаурус e-CF)
+    "бази даних": ["D.10", "A.5", "B.1"],
+    "база даних": ["D.10", "A.5", "B.1"],
+    "баз даних": ["D.10", "A.5", "B.1"],
+    "реляційні бази даних": ["D.10", "A.5", "B.1"],
+    "реляційна база даних": ["D.10", "A.5", "B.1"],
+    "субд": ["D.10", "A.5"],
+    "штучний інтелект": ["D.7", "B.1"],
+    "машинне навчання": ["D.7", "B.1"],
+    "глибоке навчання": ["D.7", "B.1"],
+    "нейронні мережі": ["D.7", "B.1"],
+    "нейронна мережа": ["D.7", "B.1"],
+    "комп'ютерний зір": ["D.7", "B.1"],
+    "комп’ютерний зір": ["D.7", "B.1"],
+    "обробка природної мови": ["D.7", "B.1"],
+    "кібербезпека": ["E.8", "D.1", "C.3"],
+    "інформаційна безпека": ["E.8", "D.1", "C.3"],
+    "криптографія": ["E.8", "D.1"],
+    "шифрування": ["E.8", "D.1"],
+    "захист інформації": ["E.8", "D.1"],
+    "аудит безпеки": ["E.8", "D.1"],
+    "управління проектами": ["E.2", "E.3"],
+    "управління проєктами": ["E.2", "E.3"],
+    "гнучкі методології": ["E.2", "E.3"],
+    "життєвий цикл": ["E.2", "B.1"],
+    "тестування": ["B.3"],
+    "тестування програмного забезпечення": ["B.3"],
+    "модульне тестування": ["B.3"],
+    "автоматизоване тестування": ["B.3"],
+    "патерни проектування": ["A.5", "A.6", "B.1"],
+    "шаблони проектування": ["A.5", "A.6", "B.1"],
+    "мікросервіси": ["A.5", "B.1", "B.2"],
+    "мікросервісна архітектура": ["A.5", "B.1", "B.2"],
+    "хмарні технології": ["B.4", "C.1", "A.5"],
+    "хмарні обчислення": ["B.4", "C.1", "A.5"],
+    "програмна інженерія": ["B.1", "A.5"],
+    "розробка програмного забезпечення": ["B.1"],
+    "машинного навчання": ["D.7", "B.1"],
+    "нейронних мереж": ["D.7", "B.1"],
+    "глибокого навчання": ["D.7", "B.1"],
+    "штучного інтелекту": ["D.7", "B.1"],
+    "інформаційної безпеки": ["E.8", "D.1", "C.3"],
+    "реляційних баз даних": ["D.10", "A.5", "B.1"]
 }
 
 def calculate_tech_relevance(found_techs: list, comp_code: str) -> float:
@@ -217,8 +261,15 @@ def process_single_text(
                 best_score = score
                 best_chunk = chunks[i]
 
+        # Гібридний бал 1-го етапу (Bi-Encoder + Tech Domain Prior):
+        # Гарантує, що цільові компетенції, для яких виявлено конкретні технології або домени,
+        # обов'язково потрапляють у пул із 25 кандидатів для глибокого реранкінгу Cross-Encoder
+        tech_prior = calculate_tech_relevance(found_techs, m["competency_code"])
+        stage1_score = best_score + (0.35 * tech_prior)
+
         retrieval_candidates.append({
-            "score": best_score, 
+            "score": stage1_score,
+            "raw_bi_score": best_score,
             "mapping": m, 
             "best_chunk": best_chunk
         })
@@ -285,6 +336,20 @@ def process_single_text(
         })
 
     final_results.sort(key=lambda x: x["similarity"], reverse=True)
+
+    # 5. Margin Sampling (Active Learning): оцінка невизначеності моделі
+    margin = 1.0
+    requires_expert_review = False
+    if len(final_results) >= 2:
+        margin = round(final_results[0]["similarity"] - final_results[1]["similarity"], 4)
+        if margin < 0.04:  # Якщо маржа між 1-м та 2-м кандидатом < 4%, модель потребує людської валідації
+            requires_expert_review = True
+    elif len(final_results) == 1:
+        margin = 1.0
+        requires_expert_review = False
+    else:
+        margin = 0.0
+        requires_expert_review = True
     
     if threshold is not None:
         final_results = [res for res in final_results if res["similarity"] >= threshold]
@@ -303,6 +368,11 @@ def process_single_text(
             "w_semantic": round(w_sem, 4),
             "w_tech": round(w_tech, 4),
             "w_bloom": round(w_bloom, 4)
+        },
+        "active_learning": {
+            "confidence_margin": margin,
+            "requires_expert_review": requires_expert_review,
+            "strategy": "Margin Sampling (Human-in-the-Loop)"
         },
         "results": final_results
     }
@@ -329,7 +399,12 @@ def finetune_model(req: FineTuneRequest):
     version_timestamp = int(time.time())
     new_model_path = f"{config.FINETUNED_MODEL_PREFIX}{version_timestamp}"
     
-    result = run_finetuning(req.samples, output_dir=new_model_path)
+    print(f"[Continual Active Learning] Запуск донавчання від чекпоінту: {MODEL.current_model_path}")
+    result = run_finetuning(
+        req.samples, 
+        output_dir=new_model_path,
+        base_model_path=MODEL.current_model_path
+    )
     
     if result["status"] == "success":
         MODEL.load_finetuned(result["saved_to"])
