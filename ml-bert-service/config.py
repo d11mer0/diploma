@@ -17,8 +17,8 @@ BI_ENCODER_MODEL: str = "all-MiniLM-L6-v2"
 CROSS_ENCODER_MODEL: str = "cross-encoder/stsb-distilroberta-base"
 
 # --- SCORING ---
-W_SEMANTIC: float = 0.75
-W_TECH: float = 0.15
+W_SEMANTIC: float = 0.70
+W_TECH: float = 0.20
 W_BLOOM: float = 0.10
 W_BI_ENCODER: float = 0.40      # Вага донавченої Bi-Encoder моделі у семантичному критерії C1
 W_CROSS_ENCODER: float = 0.60   # Вага контекстуального Cross-Encoder у семантичному критерії C1

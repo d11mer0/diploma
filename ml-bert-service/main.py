@@ -186,7 +186,7 @@ TECH_DOMAIN_MAP = {
     "мікросервісна архітектура": ["A.5", "B.1", "B.2"],
     "хмарні технології": ["B.4", "C.3", "A.5"],
     "хмарні обчислення": ["B.4", "C.3", "A.5"],
-    "програмна інженерія": ["B.1", "A.5"],
+    "програмна інженерія": ["A.5", "B.1", "A.6", "B.3"],
     "розробка програмного забезпечення": ["B.1"],
     "машинного навчання": ["D.7", "B.1"],
     "нейронних мереж": ["D.7", "B.1"],
@@ -269,12 +269,134 @@ TECH_DOMAIN_MAP = {
     "комп'ютерні мережі": ["C.5", "C.3"],
     "компютерні мережі": ["C.5", "C.3"],
     "мережеві протоколи": ["C.5", "C.3"],
-    "elk stack": ["B.4", "C.5"]
+    "elk stack": ["B.4", "C.5"],
+
+    # Architecture & Design (Ukrainian & English extended)
+    "архітектура програмного забезпечення": ["A.5", "A.6"],
+    "проектування програмного забезпечення": ["A.5", "A.6"],
+    "архітектура": ["A.5", "A.6"],
+    "архітектурні шаблони": ["A.5", "A.6"],
+    "архітектурні патерни": ["A.5", "A.6"],
+    "архітектурний дизайн": ["A.5"],
+    "архітектурні рішення": ["A.5"],
+    "software architecture": ["A.5", "A.6"],
+    "software design": ["A.5", "A.6"],
+
+    # System Integration (B.2)
+    "інтеграція інформаційних систем": ["B.2"],
+    "інтеграція систем": ["B.2"],
+    "системна інтеграція": ["B.2"],
+    "system integration": ["B.2"],
+    "systems integration": ["B.2"],
+    "компонентна інтеграція": ["B.2"]
 }
 
-def calculate_tech_relevance(found_techs: list, comp_code: str) -> float:
+def extract_course_title(text: str) -> str:
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    header_labels = {
+        'силабус освітнього компонента', 'програма навчальної дисципліни',
+        'силабус навчальної дисципліни', 'робоча програма навчальної дисципліни',
+        'назва дисципліни', 'освітній компонент', 'skip to main content',
+        'toggle navigation', 'головна', 'каталог освітніх програм', 'укр', 'eng'
+    }
+    skip_next = False
+    for line in lines[:14]:
+        clean_line = re.sub(r'\.(?:docx|pdf|txt|doc)$', '', line, flags=re.IGNORECASE).strip()
+        lower = clean_line.lower()
+        if 'каталог освітніх програм' in lower:
+            skip_next = True
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        if lower in header_labels:
+            continue
+        if len(clean_line) > 3 and not any(lower.startswith(p) for p in [
+            'шифр', 'спеціальність', 'інститут', 'кафедра', 'семестр', 'рівень',
+            'тип', 'мова', 'викладач', 'код', 'кількість', 'лектор'
+        ]):
+            return clean_line
+    return lines[0] if lines else ""
+
+BIBLIO_REGEX = re.compile(
+    r'\n\s*(?:рекомендована література|список (?:рекомендованої |основної |використаної )?літератури|основна література|допоміжна література|інформаційні ресурси|список джерел|перелік джерел|references|bibliography)\b.*',
+    re.IGNORECASE | re.DOTALL
+)
+
+def extract_linguistic_features(text: str, title: Optional[str] = None) -> dict:
+    cleaned = clean_text(text)
+    
+    # Відокремлюємо список літератури, щоб автори та сторонні цитовані статті не спотворювали профіль курсу
+    core_text = cleaned
+    biblio_match = BIBLIO_REGEX.search(cleaned)
+    if biblio_match and biblio_match.start() > len(cleaned) * 0.25:
+        core_text = cleaned[:biblio_match.start()]
+
+    doc_core = nlp(core_text.lower()[:100000])
+    tech_counts = {}
+    found_levels = set()
+    
+    matches = matcher(doc_core)
+    for match_id, start, end in matches:
+        span = doc_core[start:end]
+        t_text = span.text.strip()
+        tech_counts[t_text] = tech_counts.get(t_text, 0) + 1
+        
+    if title:
+        doc_title = nlp(title.lower())
+        for match_id, start, end in matcher(doc_title):
+            span = doc_title[start:end]
+            t_text = span.text.strip()
+            # Ваговий бонус до назви дисципліни (+15 еквівалентних згадок як визначального домену курсу)
+            tech_counts[t_text] = tech_counts.get(t_text, 0) + 15
+
+    for token in doc_core:
+        lemma_lower = token.lemma_.lower()
+        text_lower = token.text.lower()
+        if lemma_lower in BLOOM_DICT:
+            found_levels.add(BLOOM_DICT[lemma_lower])
+        elif text_lower in BLOOM_DICT:
+            found_levels.add(BLOOM_DICT[text_lower])
+            
+    # Сортуємо виявлені технології за спаданням частоти входження в текст
+    sorted_techs = [t for t, count in sorted(tech_counts.items(), key=lambda x: x[1], reverse=True)]
+
+    return {
+        "techs": sorted_techs,
+        "tech_counts": tech_counts,
+        "bloom_levels": list(found_levels)
+    }
+
+def calculate_all_tech_relevance(found_techs: list, tech_counts: dict) -> dict:
+    if not found_techs:
+        return {}
+    comp_scores = {}
+    for t in found_techs:
+        key = t.lower().strip()
+        cnt = tech_counts.get(t, 1)
+        if key in TECH_DOMAIN_MAP:
+            target_codes = TECH_DOMAIN_MAP[key]
+            for idx, code in enumerate(target_codes):
+                # Первинний домен отримує повну вагу 1.0, суміжні - 0.35
+                w = 1.0 if idx == 0 else 0.35
+                comp_scores[code] = comp_scores.get(code, 0.0) + (cnt * w)
+
+    if not comp_scores:
+        return {}
+
+    max_s = max(comp_scores.values())
+    result = {}
+    for code, s in comp_scores.items():
+        rel = s / max_s
+        result[code] = min(1.0, 0.30 + 0.70 * (rel ** 0.85))
+    return result
+
+def calculate_tech_relevance(found_techs: list, comp_code: str, tech_counts: Optional[dict] = None) -> float:
     if not found_techs:
         return 0.0
+    if tech_counts is not None:
+        rel_map = calculate_all_tech_relevance(found_techs, tech_counts)
+        return rel_map.get(comp_code, 0.15 if comp_code in config.TECH_COMPETENCY_CODES else 0.0)
     exact_score = 0.0
     matched_specific = False
     for t in found_techs:
@@ -316,9 +438,12 @@ def process_single_text(
             w_tech = weight_tech / total
             w_bloom = weight_bloom / total
 
-    features = extract_linguistic_features(text)
+    course_title = extract_course_title(text)
+    features = extract_linguistic_features(text, title=course_title)
     found_techs = features["techs"]
+    tech_counts = features.get("tech_counts", {})
     found_bloom_levels = features["bloom_levels"]
+    tech_rel_map = calculate_all_tech_relevance(found_techs, tech_counts)
 
     # 1. Розбиваємо весь документ на смислові чанки (без обмеження у 1000 символів на весь файл!)
     chunks = chunk_text(text, chunk_size=1000, chunk_overlap=200)
@@ -340,10 +465,9 @@ def process_single_text(
                 best_score = score
                 best_chunk = chunks[i]
 
-        # Гібридний бал 1-го етапу (Bi-Encoder + Tech Domain Prior):
-        # Гарантує, що цільові компетенції, для яких виявлено конкретні технології або домени,
-        # обов'язково потрапляють у пул із 25 кандидатів для глибокого реранкінгу Cross-Encoder
-        tech_prior = calculate_tech_relevance(found_techs, m["competency_code"])
+        # Гібридний бал 1-го етапу (Bi-Encoder + Dynamic Domain Specificity Prior):
+        # Гарантує, що цільові компетенції з високою доменною специфічністю отримують пріоритет
+        tech_prior = tech_rel_map.get(m["competency_code"], 0.15 if m["competency_code"] in config.TECH_COMPETENCY_CODES else 0.0)
         stage1_score = best_score + (0.35 * tech_prior)
 
         retrieval_candidates.append({
@@ -392,7 +516,8 @@ def process_single_text(
     for c in top_candidates:
         m = c["mapping"]
         doc_text = f"Competency: {m['competency_name']}. Description: {m['competency_description']}. Level: {m['level_description']}"
-        expanded_chunk = c["best_chunk"] + anchor_suffix
+        overview_snippet = f"Overview: {chunks[0][:250]}. " if (chunks and c['best_chunk'] != chunks[0]) else ""
+        expanded_chunk = f"Discipline: {course_title}. {overview_snippet}{c['best_chunk']} {anchor_suffix}" if course_title else c['best_chunk'] + anchor_suffix
         cross_pairs.append([expanded_chunk, doc_text])
 
     cross_scores = MODEL.cross_score_pairs(cross_pairs)
@@ -409,7 +534,8 @@ def process_single_text(
         # Ансамбль C1: поєднує активний донавчений Bi-Encoder та контекстуальний Cross-Encoder
         c1_score = (config.W_BI_ENCODER * norm_bi) + (config.W_CROSS_ENCODER * raw_cross)
 
-        c2_score = calculate_tech_relevance(found_techs, m["competency_code"])
+        # Динамічно зважена оцінка доменної специфічності технологій
+        c2_score = tech_rel_map.get(m["competency_code"], 0.15 if m["competency_code"] in config.TECH_COMPETENCY_CODES else 0.0)
         c3_score = 0.0
         if found_bloom_levels:
             dist = min(abs(m["level"] - target_lvl) for target_lvl in found_bloom_levels)
@@ -627,46 +753,6 @@ def get_model_info():
     return {
         "current_model_path": model_path,
         "last_trained_at": last_trained_at
-    }
-
-BIBLIO_REGEX = re.compile(
-    r'\n\s*(?:рекомендована література|список (?:рекомендованої |основної |використаної )?літератури|основна література|допоміжна література|інформаційні ресурси|список джерел|перелік джерел|references|bibliography)\b.*',
-    re.IGNORECASE | re.DOTALL
-)
-
-def extract_linguistic_features(text: str) -> dict:
-    cleaned = clean_text(text)
-    
-    # Відокремлюємо список літератури, щоб автори та сторонні цитовані статті не спотворювали профіль курсу
-    core_text = cleaned
-    biblio_match = BIBLIO_REGEX.search(cleaned)
-    if biblio_match and biblio_match.start() > len(cleaned) * 0.25:
-        core_text = cleaned[:biblio_match.start()]
-
-    doc = nlp(core_text.lower()[:100000])
-    tech_counts = {}
-    found_levels = set()
-    
-    matches = matcher(doc)
-    for match_id, start, end in matches:
-        span = doc[start:end]
-        t_text = span.text.strip()
-        tech_counts[t_text] = tech_counts.get(t_text, 0) + 1
-        
-    for token in doc:
-        lemma_lower = token.lemma_.lower()
-        text_lower = token.text.lower()
-        if lemma_lower in BLOOM_DICT:
-            found_levels.add(BLOOM_DICT[lemma_lower])
-        elif text_lower in BLOOM_DICT:
-            found_levels.add(BLOOM_DICT[text_lower])
-            
-    # Сортуємо виявлені технології за спаданням частоти входження в текст
-    sorted_techs = [t for t, count in sorted(tech_counts.items(), key=lambda x: x[1], reverse=True)]
-
-    return {
-        "techs": sorted_techs,
-        "bloom_levels": list(found_levels)
     }
 
 if __name__ == "__main__":
