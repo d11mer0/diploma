@@ -301,7 +301,15 @@ def process_single_text(
     final_results = []
     for i, candidate in enumerate(top_candidates):
         m = candidate["mapping"]
-        c1_score = max(0.0, min(1.0, float(cross_scores[i])))
+        raw_cross = max(0.0, min(1.0, float(cross_scores[i])))
+
+        # Семантичний бал від донавченого Bi-Encoder (який активно адаптується під розмітку викладача)
+        raw_bi = candidate.get("raw_bi_score", candidate["score"])
+        norm_bi = max(0.0, min(1.0, (raw_bi + 0.2) / 0.8))
+
+        # Ансамбль C1: поєднує активний донавчений Bi-Encoder та контекстуальний Cross-Encoder
+        c1_score = (config.W_BI_ENCODER * norm_bi) + (config.W_CROSS_ENCODER * raw_cross)
+
         c2_score = calculate_tech_relevance(found_techs, m["competency_code"])
         c3_score = 0.0
         if found_bloom_levels:
@@ -330,7 +338,8 @@ def process_single_text(
                 "c1_semantic": round(c1_score * w_sem, 4),
                 "c2_tech": round(c2_score * w_tech, 4),
                 "c3_bloom": round(c3_score * w_bloom, 4),
-                "raw_cross_score": round(c1_score, 4),
+                "raw_cross_score": round(raw_cross, 4),
+                "raw_bi_score": round(raw_bi, 4),
                 "matched_snippet": snippet
             }
         })
