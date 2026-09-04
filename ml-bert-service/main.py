@@ -48,6 +48,10 @@ class PredictRequest(BaseModel):
     text: str
     top_k: int = 5
     threshold: Optional[float] = Field(None, ge=0, le=1)
+    weight_semantic: Optional[float] = None
+    weight_tech: Optional[float] = None
+    weight_bloom: Optional[float] = None
+
 
 # Доменна карта прив'язки технологій та інструментів до стандартів e-CF
 TECH_DOMAIN_MAP = {
@@ -167,9 +171,27 @@ def calculate_tech_relevance(found_techs: list, comp_code: str) -> float:
         return 0.25
     return 0.0
 
-def process_single_text(text: str, top_k: int, threshold: Optional[float]):
+def process_single_text(
+    text: str, 
+    top_k: int, 
+    threshold: Optional[float],
+    weight_semantic: Optional[float] = None,
+    weight_tech: Optional[float] = None,
+    weight_bloom: Optional[float] = None
+):
     if not text or not text.strip():
         return {"results": []}
+
+    # Розрахунок вагових коефіцієнтів МАІ (з можливістю динамічного перевизначення)
+    w_sem = config.W_SEMANTIC
+    w_tech = config.W_TECH
+    w_bloom = config.W_BLOOM
+    if weight_semantic is not None and weight_tech is not None and weight_bloom is not None:
+        total = weight_semantic + weight_tech + weight_bloom
+        if total > 0:
+            w_sem = weight_semantic / total
+            w_tech = weight_tech / total
+            w_bloom = weight_bloom / total
 
     features = extract_linguistic_features(text)
     found_techs = features["techs"]
@@ -202,7 +224,19 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
         })
     
     retrieval_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_candidates = retrieval_candidates[:config.RERANK_TOP_K]
+
+    # ДИВЕРСИФІКАЦІЯ КАНДИДАТІВ: обмежуємо до 2 рівнів на одну компетенцію,
+    # щоб одна категорія не блокувала представників інших доменів стандарту e-CF у пулі реранкінгу
+    seen_comp_counts = {}
+    top_candidates = []
+    for c in retrieval_candidates:
+        code = c["mapping"]["competency_code"]
+        count = seen_comp_counts.get(code, 0)
+        if count < 2:
+            top_candidates.append(c)
+            seen_comp_counts[code] = count + 1
+        if len(top_candidates) >= config.RERANK_TOP_K:
+            break
 
     # 4. Cross-Encoder: оцінюємо пару (знайдений конкретний пасаж силабусу + опис компетенції)
     cross_pairs = []
@@ -226,7 +260,7 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
             elif dist <= config.BLOOM_ADJACENT_LEVEL_DISTANCE:
                 c3_score = config.BLOOM_ADJACENT_LEVEL_SCORE
 
-        final_score = (c1_score * config.W_SEMANTIC) + (c2_score * config.W_TECH) + (c3_score * config.W_BLOOM)
+        final_score = (c1_score * w_sem) + (c2_score * w_tech) + (c3_score * w_bloom)
 
         snippet = candidate["best_chunk"]
         if len(snippet) > 250:
@@ -242,9 +276,9 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
             "level_description": m["level_description"],
             "similarity": round(final_score, 4),
             "details": {
-                "c1_semantic": round(c1_score * config.W_SEMANTIC, 4),
-                "c2_tech": round(c2_score * config.W_TECH, 4),
-                "c3_bloom": round(c3_score * config.W_BLOOM, 4),
+                "c1_semantic": round(c1_score * w_sem, 4),
+                "c2_tech": round(c2_score * w_tech, 4),
+                "c3_bloom": round(c3_score * w_bloom, 4),
                 "raw_cross_score": round(c1_score, 4),
                 "matched_snippet": snippet
             }
@@ -265,6 +299,11 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
             "technologies": found_techs,
             "detected_bloom_levels": found_bloom_levels
         },
+        "weights_applied": {
+            "w_semantic": round(w_sem, 4),
+            "w_tech": round(w_tech, 4),
+            "w_bloom": round(w_bloom, 4)
+        },
         "results": final_results
     }
 
@@ -275,7 +314,14 @@ def health():
 @app.post("/predict")
 def predict(req: PredictRequest):
     print(f"\n[DEBUG /predict] Моделі: {MODEL.current_model_path} + Cross-Encoder")
-    result = process_single_text(req.text, req.top_k, req.threshold)
+    result = process_single_text(
+        req.text, 
+        req.top_k, 
+        req.threshold,
+        req.weight_semantic,
+        req.weight_tech,
+        req.weight_bloom
+    )
     return {**result, "search_mode": "Two-Stage (Bi-Encoder + Cross-Encoder)", "top_k": req.top_k, "threshold": req.threshold}
 
 @app.post("/finetune/train")

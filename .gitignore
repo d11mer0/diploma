@@ -34,3 +34,7 @@ uploads/
 models/fine_tuned_*
 ml-bert-service/models/fine_tuned_*
 
+# Documents
+*.docx
+*.doc
+

@@ -72,19 +72,30 @@ export class MappingService {
       return { message: 'Немає нових валідованих даних для експорту.', samplesCount: 0, mlResult: null };
     }
 
-    const trainingSamples = validatedMappings.map(m => {
-      const positiveText = `${m.competence.name}. ${m.competence.description}`;
-      
-      const negativeCompetences = validatedMappings
-        .filter(other => other.outcomeId === m.outcomeId && other.competenceId !== m.competenceId)
-        .map(other => `${other.competence.name}. ${other.competence.description}`);
+    const trainingSamples = await Promise.all(
+      validatedMappings.map(async (m) => {
+        const positiveText = `${m.competence.name}. ${m.competence.description}`;
+        
+        // Шукаємо реальні не обрані альтернативні варіанти мапінгу (Hard Negatives)
+        const altMapping = await this.prisma.mappingResult.findFirst({
+          where: {
+            outcomeId: m.outcomeId,
+            competenceId: { not: m.competenceId },
+          },
+          include: { competence: true },
+        });
 
-      return {
-        query: m.outcome.originalText,
-        positive: positiveText,
-        negative: negativeCompetences.length > 0 ? negativeCompetences[0] : 'Other IT competence description',
-      };
-    });
+        const negativeText = altMapping
+          ? `${altMapping.competence.name}. ${altMapping.competence.description}`
+          : '';
+
+        return {
+          query: m.outcome.originalText,
+          positive: positiveText,
+          negative: negativeText,
+        };
+      }),
+    );
 
     try {
       // Запускаємо навчання
