@@ -13,7 +13,7 @@ from preprocess import chunk_text, clean_text
 from model import BertEmbeddingModel
 from ecf_loader import ECFEmbeddingStore
 from utils import cosine_similarity_vec
-from finetune.schema import FineTuneRequest
+from finetune.schema import FineTuneRequest, FineTuneSample
 from finetune.trainer import run_finetuning
 
 print(f"Завантаження NLP-моделі spaCy: {config.SPACY_MODEL}...")
@@ -91,7 +91,7 @@ TECH_DOMAIN_MAP = {
     "vulnerability": ["E.8", "D.1"],
     "vulnerabilities": ["E.8", "D.1"],
     "security audit": ["E.8", "D.1"],
-    "firewall": ["E.8", "C.1"],
+    "firewall": ["E.8", "C.3"],
     "iso/iec 27001": ["E.8", "D.1"],
     "iso 27001": ["E.8", "D.1"],
     "penetration testing": ["E.8", "B.3"],
@@ -141,13 +141,13 @@ TECH_DOMAIN_MAP = {
     "selenium": ["B.3"],
 
     # DevOps & Infrastructure
-    "docker": ["B.4", "C.1"],
-    "kubernetes": ["B.4", "C.1"],
-    "ci/cd": ["B.4"],
-    "aws": ["B.4", "C.1"],
-    "cloud": ["B.4", "C.1", "A.5"],
-    "devops": ["B.4", "C.1"],
-    "linux": ["C.1", "B.4"],
+    "docker": ["B.4", "C.3", "C.5"],
+    "kubernetes": ["B.4", "C.3", "C.5"],
+    "ci/cd": ["B.4", "C.3"],
+    "aws": ["B.4", "C.3", "A.5"],
+    "cloud": ["B.4", "C.3", "A.5"],
+    "devops": ["B.4", "C.3", "B.1"],
+    "linux": ["C.5", "B.4", "C.3"],
     "git": ["B.1", "B.2", "B.4"],
 
     # Ukrainian Domain Mappings (Двомовний тезаурус e-CF)
@@ -183,8 +183,8 @@ TECH_DOMAIN_MAP = {
     "шаблони проектування": ["A.5", "A.6", "B.1"],
     "мікросервіси": ["A.5", "B.1", "B.2"],
     "мікросервісна архітектура": ["A.5", "B.1", "B.2"],
-    "хмарні технології": ["B.4", "C.1", "A.5"],
-    "хмарні обчислення": ["B.4", "C.1", "A.5"],
+    "хмарні технології": ["B.4", "C.3", "A.5"],
+    "хмарні обчислення": ["B.4", "C.3", "A.5"],
     "програмна інженерія": ["B.1", "A.5"],
     "розробка програмного забезпечення": ["B.1"],
     "машинного навчання": ["D.7", "B.1"],
@@ -236,7 +236,7 @@ TECH_DOMAIN_MAP = {
     "raspberry pi": ["B.6"],
 
     # Systems Management & Administration (C.5)
-    "системне адміністрування": ["C.5", "C.1"],
+    "системне адміністрування": ["C.5", "C.3"],
     "операційні системи": ["C.5", "B.6"],
 
     # ICT Quality Strategy & Management (D.2, E.6)
@@ -533,16 +533,58 @@ def predict(req: PredictRequest):
     )
     return {**result, "search_mode": "Two-Stage (Bi-Encoder + Cross-Encoder)", "top_k": req.top_k, "threshold": req.threshold}
 
+FEEDBACK_HISTORY_FILE = "data/feedback_history.jsonl"
+
+def append_feedback_history(samples: List[FineTuneSample]):
+    try:
+        os.makedirs(os.path.dirname(FEEDBACK_HISTORY_FILE), exist_ok=True)
+        with open(FEEDBACK_HISTORY_FILE, "a", encoding="utf-8") as f:
+            for s in samples:
+                f.write(json.dumps(s.dict(), ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[Continual Learning] Warning saving feedback history: {e}")
+
+def get_cumulative_feedback(new_samples: List[FineTuneSample], max_history: int = 40) -> List[FineTuneSample]:
+    history = []
+    seen_queries = set()
+    for s in new_samples:
+        q_key = s.query.strip().lower()[:100]
+        if q_key:
+            seen_queries.add(q_key)
+        history.append(s)
+
+    if os.path.exists(FEEDBACK_HISTORY_FILE):
+        try:
+            with open(FEEDBACK_HISTORY_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        item = json.loads(line.strip())
+                        q_key = item.get("query", "").strip().lower()[:100]
+                        if q_key and q_key not in seen_queries:
+                            seen_queries.add(q_key)
+                            history.append(FineTuneSample(**item))
+        except Exception as e:
+            print(f"[Continual Learning] Warning loading feedback history: {e}")
+
+    return history[-max_history:]
+
 @app.post("/finetune/train")
 def finetune_model(req: FineTuneRequest):
     version_timestamp = int(time.time())
     new_model_path = f"{config.FINETUNED_MODEL_PREFIX}{version_timestamp}"
     
-    print(f"[Continual Active Learning] Запуск донавчання від чекпоінту: {MODEL.current_model_path}")
+    if req.samples:
+        append_feedback_history(req.samples)
+
+    cumulative_samples = get_cumulative_feedback(req.samples)
+    print(f"[Continual Active Learning] Запуск донавчання на {len(cumulative_samples)} зразках (нових: {len(req.samples)}) від чекпоінту: {MODEL.current_model_path}")
+    
     result = run_finetuning(
-        req.samples, 
+        cumulative_samples, 
         output_dir=new_model_path,
-        base_model_path=MODEL.current_model_path
+        base_model_path=MODEL.current_model_path,
+        ecf_store=ECF_STORE,
+        feature_extractor=extract_linguistic_features
     )
     
     if result["status"] == "success":

@@ -28,6 +28,7 @@ Thumbs.db
 # Archives & Logs
 *.zip
 *.log
+*.jsonl
 uploads/
 
 # Trained models

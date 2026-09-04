@@ -1,9 +1,9 @@
 import json
 import random
 from typing import List, Tuple
+from sentence_transformers import InputExample
 from .schema import FineTuneSample
 
-# Завантажуємо пул компетенцій e-CF для якісного підбору негативних прикладів та Rehearsal Regularization
 ECF_POOL: List[str] = []
 ECF_RAW_DATA: List[dict] = []
 try:
@@ -14,75 +14,155 @@ try:
 except Exception as e:
     print("[dataset_builder] Помилка завантаження ecf_data.json для Negative Mining:", e)
 
-def get_fallback_negative(positive: str) -> str:
-    if not ECF_POOL:
-        return "Service Management and Process Optimisation according to ITIL standards."
-    candidates = [c for c in ECF_POOL if c[:20].lower() not in positive[:20].lower()]
-    return random.choice(candidates) if candidates else random.choice(ECF_POOL)
-
-def get_canonical_rehearsal_triplets(count: int = 6) -> Tuple[List[str], List[str], List[str]]:
+def mine_hard_negatives_from_store(query_text: str, positive_text: str, ecf_store, top_k: int = 2) -> List[str]:
     """
-    Генерує канонічні якірні трійки (Experience Replay / Rehearsal Regularization)
-    безпосередньо з опису стандарту e-CF. Це захищає векторний простір від
-    катастрофічного забування (Catastrophic Forgetting) при навчанні на малих вибірках.
+    Автоматично знаходить найближчих хибнопозитивних конкурентів (Hard Negatives)
+    з поточного векторного простору моделі для загострення розділової гіперповерхні.
     """
-    if not ECF_RAW_DATA or len(ECF_RAW_DATA) < 4:
-        return [], [], []
+    if ecf_store is not None and hasattr(ecf_store, 'find_closest'):
+        try:
+            q_emb = ecf_store.model.embed(query_text)
+            closest = ecf_store.find_closest(q_emb, top_k=20)
+            
+            pos_lower = positive_text.lower()
+            hard_negs = []
+            seen_codes = set()
+            
+            for item in closest:
+                m = item['mapping']
+                comp_code = m['competency_code']
+                comp_name = m['competency_name'].lower()
+                
+                # Пропускаємо, якщо це цільова компетенція
+                if comp_code.lower() in pos_lower or comp_name[:15] in pos_lower:
+                    continue
+                if comp_code in seen_codes:
+                    continue
+                    
+                seen_codes.add(comp_code)
+                hard_negs.append(m['combined_text'])
+                if len(hard_negs) >= top_k:
+                    break
+                    
+            if hard_negs:
+                return hard_negs
+        except Exception as e:
+            print("[dataset_builder] Помилка hard negative mining через ecf_store:", e)
 
-    r_anchors, r_positives, r_negatives = [], [], []
-    chosen_comps = random.sample(ECF_RAW_DATA, min(count, len(ECF_RAW_DATA)))
+    # Fallback на семантичний пул
+    candidates = [c for c in ECF_POOL if c[:20].lower() not in positive_text[:20].lower()]
+    return random.sample(candidates, min(top_k, len(candidates))) if candidates else [positive_text]
 
-    for comp in chosen_comps:
-        anchor = f"Professional IT competence: {comp['name']}. {comp['description'][:160]}"
-        
-        # Шукаємо валідний рівень
-        valid_levels = [lvl for lvl in comp.get('levels', []) if lvl.get('description') and lvl.get('description') != '-']
-        if valid_levels:
-            lvl = random.choice(valid_levels)
-            pos = f"{comp['name']} (Level {lvl['level']}): {lvl['description']}"
-        else:
-            pos = f"{comp['name']}. {comp['description']}"
-
-        # Негативний приклад береться з зовсім іншого домену
-        neg_candidates = [c for c in ECF_RAW_DATA if c.get('code', '')[:1] != comp.get('code', '')[:1]]
-        if not neg_candidates:
-            neg_candidates = [c for c in ECF_RAW_DATA if c.get('code') != comp.get('code')]
-        neg_comp = random.choice(neg_candidates) if neg_candidates else comp
-        neg = f"{neg_comp['name']}. {neg_comp['description']}"
-
-        r_anchors.append(anchor)
-        r_positives.append(pos)
-        r_negatives.append(neg)
-
-    return r_anchors, r_positives, r_negatives
-
-def build_training_triplets(samples: List[FineTuneSample], include_rehearsal: bool = True) -> Tuple[List[str], List[str], List[str]]:
+def get_stratified_rehearsal_triplets() -> List[InputExample]:
     """
-    Розбиває дані від експерта на трійки (Triplets) для Contrastive Learning
-    з підтримкою Negative Mining та Experience Replay Regularization.
+    Генерує збалансовані двомовні канонічні стабілізуючі трійки для всіх 5 вимірів e-CF (A, B, C, D, E).
+    Вони діють як взаємні ортогональні просторові координатні якорі, запобігаючи домінуванню
+    окремої категорії (наприклад, B.1 чи C.1) та захищаючи від катастрофічного забування.
     """
-    anchors = []
-    positives = []
-    negatives = []
+    canonical_samples = [
+        # Dimension A: Architecture / Plan
+        ("IT enterprise architecture, system component specifications, microservices patterns, software modeling [Domain technologies: architecture, microservices, design patterns]",
+         "Architecture Design. Specifies and designs technical architecture and systems solutions.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+        ("Архітектура програмних систем, проектування компонентів, мікросервісна архітектура та шаблони проектування [Domain technologies: microservices, design patterns]",
+         "Architecture Design. Specifies and designs technical architecture and systems solutions.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+
+        # Dimension B: Development / Build
+        ("Software application programming, backend API implementation, web application development [Domain technologies: python, java, javascript, rest api]",
+         "Application Development. Interprets the application design to develop and write reliable software code.",
+         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
+        ("Розробка програмного забезпечення, створення веб-додатків, програмування серверних та клієнтських компонентів [Domain technologies: java, python, javascript]",
+         "Application Development. Interprets the application design to develop and write reliable software code.",
+         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
+
+        # Dimension C: Cloud & Operations / Run
+        ("Production cloud operations, service delivery, kubernetes container orchestration, infrastructure monitoring [Domain technologies: cloud, kubernetes, docker, ci/cd]",
+         "Service Delivery. Ensures that service delivery meets agreed quality, availability and security levels.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+        ("Хмарні обчислення, хмарні технології, віртуалізація, адміністрування та моніторинг хмарної інфраструктури [Domain technologies: cloud, kubernetes, aws, azure]",
+         "Service Delivery. Ensures that service delivery meets agreed quality, availability and security levels.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+
+        # Dimension D: Data Science & AI / Enable
+        ("Machine learning models, neural networks, statistical analytics, big data science [Domain technologies: machine learning, data science, python]",
+         "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+        ("Штучний інтелект, машинне навчання, глибоке навчання, нейронні мережі та аналіз даних [Domain technologies: машинне навчання, штучний інтелект, python]",
+         "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+
+        # Dimension E: Cybersecurity & Governance / Manage
+        ("Cybersecurity defense, cryptography algorithms, penetration testing, security audit and threat monitoring [Domain technologies: кібербезпека, cryptography, security audit]",
+         "Information Security Management. Implements security policy and monitors cyber threats and vulnerabilities.",
+         "Application Development. Interprets the application design to develop and write reliable software code."),
+        ("Кібербезпека, інформаційна безпека, криптографія, шифрування та захист інформації [Domain technologies: кібербезпека, криптографія, захист інформації]",
+         "Information Security Management. Implements security policy and monitors cyber threats and vulnerabilities.",
+         "Application Development. Interprets the application design to develop and write reliable software code.")
+    ]
+
+    rehearsal_examples = []
+    for anc, pos, neg in canonical_samples:
+        rehearsal_examples.append(InputExample(texts=[anc, pos, neg]))
+        rehearsal_examples.append(InputExample(texts=[pos, anc, neg]))
+    return rehearsal_examples
+
+def build_training_triplets(
+    samples: List[FineTuneSample],
+    ecf_store=None,
+    feature_extractor=None,
+    include_rehearsal: bool = True
+) -> List[InputExample]:
+    """
+    Формує оптимізовані вхідні дані для контрастивного навчання:
+    1. Автоматичне концептуальне якоріння запиту (Bilingual Concept Anchoring).
+    2. Автоматичний відбір найсильніших хибнопозитивних конкурентів (Top-2 Hard Negative Mining).
+    3. Симетричне двонаправлене навчання (Bidirectional Metric Alignment).
+    4. Стратифіковане закріплення простору стандартами e-CF (Stratified Rehearsal).
+    """
+    train_examples: List[InputExample] = []
 
     for s in samples:
-        neg = s.negative.strip() if s.negative else ""
-        # Якщо негативний приклад порожній, є заглушкою або надто коротким – підбираємо справжню компетенцію
-        if not neg or "other it competence" in neg.lower() or len(neg) < 15:
-            neg = get_fallback_negative(s.positive)
+        query_text = s.query.strip()
+        
+        # 1. Двомовне контекстне якоріння (Concept Anchoring)
+        if feature_extractor:
+            try:
+                feat_res = feature_extractor(query_text)
+                if isinstance(feat_res, dict):
+                    techs = feat_res.get("techs", [])
+                elif isinstance(feat_res, (list, tuple)):
+                    techs = feat_res[0]
+                else:
+                    techs = []
+                if techs:
+                    query_text = f"{query_text} [Domain technologies: {', '.join(techs[:5])}]"
+            except Exception:
+                pass
 
-        anchors.append(s.query)
-        positives.append(s.positive)
-        negatives.append(neg)
+        # 2. Hard Negative Mining
+        negatives = []
+        if s.negative and len(s.negative.strip()) > 15 and "other it competence" not in s.negative.lower():
+            negatives.append(s.negative.strip())
+        
+        needed_negs = max(1, 2 - len(negatives))
+        mined_negs = mine_hard_negatives_from_store(query_text, s.positive, ecf_store, top_k=needed_negs)
+        for mn in mined_negs:
+            if mn not in negatives:
+                negatives.append(mn)
 
-    # Додаємо канонічні трійки для стабілізації простору (Rehearsal)
+        # 3. Формуємо прямі та симетричні трійки для кожного знайденого складного негативу
+        for neg in negatives[:2]:
+            train_examples.append(InputExample(texts=[query_text, s.positive, neg]))
+            train_examples.append(InputExample(texts=[s.positive, query_text, neg]))
+
+    print(f"[dataset_builder] Сформовано {len(train_examples)} збагачених симетричних трійок (з Hard Negative Mining).")
+
+    # 4. Стратифікована стабілізація Rehearsal
     if include_rehearsal and len(samples) > 0:
-        rehearsal_count = max(4, min(8, len(samples) * 2))
-        r_anchors, r_positives, r_negatives = get_canonical_rehearsal_triplets(rehearsal_count)
-        anchors.extend(r_anchors)
-        positives.extend(r_positives)
-        negatives.extend(r_negatives)
-        print(f"[dataset_builder] Сформовано {len(samples)} призначених зразків + {len(r_anchors)} стабілізуючих канонічних трійок (Rehearsal).")
+        rehearsal_triplets = get_stratified_rehearsal_triplets()
+        train_examples.extend(rehearsal_triplets)
+        print(f"[dataset_builder] Додано {len(rehearsal_triplets)} стратифікованих еталонних трійок (Rehearsal A-E).")
 
-    return anchors, positives, negatives
+    return train_examples
 
