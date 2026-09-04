@@ -51,6 +51,7 @@ class PredictRequest(BaseModel):
     weight_semantic: Optional[float] = None
     weight_tech: Optional[float] = None
     weight_bloom: Optional[float] = None
+    unique_competencies: bool = True
 
 
 # Доменна карта прив'язки технологій та інструментів до стандартів e-CF
@@ -221,7 +222,8 @@ def process_single_text(
     threshold: Optional[float],
     weight_semantic: Optional[float] = None,
     weight_tech: Optional[float] = None,
-    weight_bloom: Optional[float] = None
+    weight_bloom: Optional[float] = None,
+    unique_competencies: bool = True
 ):
     if not text or not text.strip():
         return {"results": []}
@@ -289,12 +291,32 @@ def process_single_text(
         if len(top_candidates) >= config.RERANK_TOP_K:
             break
 
-    # 4. Cross-Encoder: оцінюємо пару (знайдений конкретний пасаж силабусу + опис компетенції)
+    # 4. Cross-Encoder: оцінюємо пару (пасаж з якірними поняттями + опис компетенції)
+    # Формуємо якірні англомовні концепції для подолання міжмовного бар'єру (Query Expansion)
+    bloom_level_labels = {
+        1: "Associate / Foundational",
+        2: "Specialist / Apply",
+        3: "Analyze / Architecture / Senior",
+        4: "Lead / Systems Direction",
+        5: "Strategic / Innovation"
+    }
+    
+    extra_anchors = []
+    if found_techs:
+        extra_anchors.append(f"Domain technologies: {', '.join(found_techs[:4])}")
+    if found_bloom_levels:
+        bloom_desc = [bloom_level_labels[lvl] for lvl in sorted(found_bloom_levels) if lvl in bloom_level_labels]
+        if bloom_desc:
+            extra_anchors.append(f"Target competence levels: {', '.join(bloom_desc)}")
+    
+    anchor_suffix = f" [Context: {'; '.join(extra_anchors)}]" if extra_anchors else ""
+
     cross_pairs = []
     for c in top_candidates:
         m = c["mapping"]
         doc_text = f"Competency: {m['competency_name']}. Description: {m['competency_description']}. Level: {m['level_description']}"
-        cross_pairs.append([c["best_chunk"], doc_text])
+        expanded_chunk = c["best_chunk"] + anchor_suffix
+        cross_pairs.append([expanded_chunk, doc_text])
 
     cross_scores = MODEL.cross_score_pairs(cross_pairs)
 
@@ -325,6 +347,33 @@ def process_single_text(
         if len(snippet) > 250:
             snippet = snippet[:250].rsplit(' ', 1)[0] + "..."
 
+        # Калібрування рівня впевненості та зрозуміла пояснюваність
+        if final_score >= 0.60:
+            conf_level = "HIGH"
+            conf_label = "Висока відповідність стандарту e-CF"
+        elif final_score >= 0.50:
+            conf_level = "MODERATE"
+            conf_label = "Помірна відповідність стандарту e-CF"
+        else:
+            conf_level = "LOW"
+            conf_label = "Потребує експертного розгляду"
+
+        reasons = []
+        if c2_score >= 0.60:
+            reasons.append(f"Профільні технології ({', '.join(found_techs[:2])})")
+        elif c2_score > 0:
+            reasons.append("Загальний IT-технологічний профіль")
+        
+        if c3_score == 1.0:
+            reasons.append(f"Точний збіг рівня складності (Рівень {m['level']})")
+        elif c3_score > 0:
+            reasons.append(f"Суміжний рівень складності (Рівень {m['level']})")
+            
+        if raw_bi > 0.10:
+            reasons.append("Підтверджено донавчанням простору")
+
+        explanation = "; ".join(reasons) if reasons else "Семантичний збіг змісту дисципліни"
+
         final_results.append({
             "competency_id": m["competency_id"],
             "competency_code": m["competency_code"],
@@ -334,6 +383,9 @@ def process_single_text(
             "level": m["level"],
             "level_description": m["level_description"],
             "similarity": round(final_score, 4),
+            "confidence_level": conf_level,
+            "confidence_label": conf_label,
+            "explanation": explanation,
             "details": {
                 "c1_semantic": round(c1_score * w_sem, 4),
                 "c2_tech": round(c2_score * w_tech, 4),
@@ -346,14 +398,27 @@ def process_single_text(
 
     final_results.sort(key=lambda x: x["similarity"], reverse=True)
 
+    # Дедуплікація за унікальним кодом компетенції (Best Resolved Level):
+    # Гарантує, що у видачі присутні різні компетенції стандарту e-CF, а не кілька копій однієї
+    if unique_competencies:
+        best_per_code = {}
+        for res in final_results:
+            code = res["competency_code"]
+            if code not in best_per_code or res["similarity"] > best_per_code[code]["similarity"]:
+                best_per_code[code] = res
+        processed_results = list(best_per_code.values())
+        processed_results.sort(key=lambda x: x["similarity"], reverse=True)
+    else:
+        processed_results = final_results
+
     # 5. Margin Sampling (Active Learning): оцінка невизначеності моделі
     margin = 1.0
     requires_expert_review = False
-    if len(final_results) >= 2:
-        margin = round(final_results[0]["similarity"] - final_results[1]["similarity"], 4)
+    if len(processed_results) >= 2:
+        margin = round(processed_results[0]["similarity"] - processed_results[1]["similarity"], 4)
         if margin < 0.04:  # Якщо маржа між 1-м та 2-м кандидатом < 4%, модель потребує людської валідації
             requires_expert_review = True
-    elif len(final_results) == 1:
+    elif len(processed_results) == 1:
         margin = 1.0
         requires_expert_review = False
     else:
@@ -361,9 +426,9 @@ def process_single_text(
         requires_expert_review = True
     
     if threshold is not None:
-        final_results = [res for res in final_results if res["similarity"] >= threshold]
+        final_output = [res for res in processed_results if res["similarity"] >= threshold]
     else:
-        final_results = final_results[:top_k]
+        final_output = processed_results[:top_k]
 
     return {
         "text": text[:500] + ("..." if len(text) > 500 else ""), 
@@ -383,7 +448,7 @@ def process_single_text(
             "requires_expert_review": requires_expert_review,
             "strategy": "Margin Sampling (Human-in-the-Loop)"
         },
-        "results": final_results
+        "results": final_output
     }
 
 @app.get("/health")
@@ -399,7 +464,8 @@ def predict(req: PredictRequest):
         req.threshold,
         req.weight_semantic,
         req.weight_tech,
-        req.weight_bloom
+        req.weight_bloom,
+        req.unique_competencies
     )
     return {**result, "search_mode": "Two-Stage (Bi-Encoder + Cross-Encoder)", "top_k": req.top_k, "threshold": req.threshold}
 
