@@ -4,36 +4,51 @@ const theme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#BB86FC',
+      main: '#A78BFA',
+      light: '#C4B5FD',
+      dark: '#7C3AED',
     },
     secondary: {
-      main: '#03DAC6',
+      main: '#2DD4BF',
+      light: '#5EEAD4',
+      dark: '#0D9488',
     },
     error: {
-      main: '#CF6679',
+      main: '#F87171',
       contrastText: '#FFFFFF',
     },
     info: {
-      main: '#757575',
+      main: '#38BDF8',
       contrastText: '#FFFFFF',
     },
+    success: {
+      main: '#34D399',
+      contrastText: '#000000',
+    },
+    warning: {
+      main: '#FBBF24',
+      contrastText: '#000000',
+    },
     background: {
-      default: '#121212',
-      paper: '#1E1E1E',
+      default: '#0F172A',
+      paper: '#1E293B',
     },
     text: {
-      primary: '#E0E0E0',
-      secondary: '#A0A0A0',
+      primary: '#F8FAFC',
+      secondary: '#94A3B8',
     },
   },
   typography: {
     fontSize: 14,
+    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
   },
   components: {
     MuiAppBar: {
       styleOverrides: {
         root: {
-          backgroundColor: '#1E1E1E',
+          backgroundColor: '#1E293B',
+          backgroundImage: 'linear-gradient(90deg, #1E293B 0%, #0F172A 100%)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         },
       },
     },

@@ -9,9 +9,12 @@ import StarsIcon from '@mui/icons-material/Stars';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import AppNavbar from '../components/AppNavbar';
 import api from '../api';
 import CollapsibleText from '../components/CollapsibleText';
+import AccreditationReport from '../components/AccreditationReport';
+import { generateAccreditationPdf } from '../utils/pdfGenerator';
 import { useTheme } from '@mui/material/styles';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell } from 'recharts';
 
@@ -100,6 +103,33 @@ const SyllabusDetailPage: React.FC<SyllabusDetailPageProps> = ({ onLogout, userR
   const [error, setError] = useState('');
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [pdfSuccess, setPdfSuccess] = useState(false);
+
+  const handleExportPdf = async () => {
+    if (!syllabus) return;
+    setExportingPdf(true);
+    setPdfSuccess(false);
+    try {
+      const cleanTitle = (syllabus.title || 'Syllabus')
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .replace(/\s+/g, '_')
+        .slice(0, 50);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `Звіт_акредитації_${cleanTitle}_${dateStr}`;
+      await generateAccreditationPdf('accreditation-report-root', {
+        filename,
+        reportTitle: `Експертний звіт: ${syllabus.title}`
+      });
+      setPdfSuccess(true);
+      setTimeout(() => setPdfSuccess(false), 5000);
+    } catch (err) {
+      console.error('Помилка при формуванні PDF:', err);
+      setError('Не вдалося згенерувати PDF-звіт для акредитації. Спробуйте ще раз.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   const fetchAnalysis = useCallback(async () => {
     if (!id) return;
@@ -275,7 +305,16 @@ const SyllabusDetailPage: React.FC<SyllabusDetailPageProps> = ({ onLogout, userR
           >
             {syllabus?.title || 'Детальний аналіз'}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={exportingPdf ? <CircularProgress size={20} color="inherit" /> : <PictureAsPdfIcon />}
+              onClick={handleExportPdf}
+              disabled={exportingPdf || loading || outcomes.length === 0}
+            >
+              {exportingPdf ? 'Формування PDF...' : 'Експорт звіту (PDF)'}
+            </Button>
             <Button 
               variant="outlined" 
               color="info" 
@@ -295,7 +334,8 @@ const SyllabusDetailPage: React.FC<SyllabusDetailPageProps> = ({ onLogout, userR
           </Box>
         </Box>
 
-        {error && <Alert severity="error">{error}</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {pdfSuccess && <Alert severity="success" sx={{ mb: 2 }}>Офіційний PDF-звіт для акредитації успішно сформовано та завантажено!</Alert>}
         
         <Collapse in={showExplanation}>
           <Paper elevation={3} sx={{ p: 3, mb: 4, backgroundColor: 'rgba(25, 118, 210, 0.05)', border: '1px solid rgba(25, 118, 210, 0.2)' }}>
@@ -808,6 +848,34 @@ const SyllabusDetailPage: React.FC<SyllabusDetailPageProps> = ({ onLogout, userR
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Прихований контейнер для рендерингу та захоплення PDF */}
+      <Box
+        sx={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          width: '880px',
+          pointerEvents: 'none',
+          zIndex: -1000,
+          overflow: 'hidden',
+        }}
+      >
+        <AccreditationReport
+          id="accreditation-report-root"
+          syllabus={syllabus}
+          outcomes={outcomes}
+          overallScoreFormatted={overallScoreFormatted}
+          overallScoreValue={overallScoreValue}
+          validationPercentage={validationPercentage}
+          validatedCompetenciesCount={validatedCompetenciesCount}
+          totalCompetencies={totalCompetencies}
+          uniqueCompetenciesCount={uniqueCompetencies.length}
+          radarData={radarData}
+          barChartData={barChartData}
+          thresholdPercentage={thresholdPercentage}
+        />
+      </Box>
     </>
   );
 };
