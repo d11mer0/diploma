@@ -3,6 +3,7 @@ import json
 import spacy
 import time
 import os
+import re
 from spacy.matcher import PhraseMatcher
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -256,7 +257,19 @@ TECH_DOMAIN_MAP = {
 
     # Digital Marketing (D.6)
     "веб-аналітика": ["D.6", "D.7"],
-    "цифровий маркетинг": ["D.6"]
+    "цифровий маркетинг": ["D.6"],
+
+    # Sustainability Management (A.8)
+    "green computing": ["A.8"],
+    "сталий розвиток": ["A.8"],
+    "зелені технології": ["A.8"],
+    "зелені інформаційні системи": ["A.8"],
+
+    # Network & Infrastructure (C.5, C.3)
+    "комп'ютерні мережі": ["C.5", "C.3"],
+    "компютерні мережі": ["C.5", "C.3"],
+    "мережеві протоколи": ["C.5", "C.3"],
+    "elk stack": ["B.4", "C.5"]
 }
 
 def calculate_tech_relevance(found_techs: list, comp_code: str) -> float:
@@ -423,8 +436,12 @@ def process_single_text(
             conf_label = "Потребує експертного розгляду"
 
         reasons = []
-        if c2_score >= 0.60:
-            reasons.append(f"Профільні технології ({', '.join(found_techs[:2])})")
+        matching_techs = [
+            t for t in found_techs 
+            if t.lower().strip() in TECH_DOMAIN_MAP and m["competency_code"] in TECH_DOMAIN_MAP[t.lower().strip()]
+        ]
+        if matching_techs:
+            reasons.append(f"Профільні технології ({', '.join(matching_techs[:2])})")
         elif c2_score > 0:
             reasons.append("Загальний IT-технологічний профіль")
         
@@ -612,17 +629,29 @@ def get_model_info():
         "last_trained_at": last_trained_at
     }
 
+BIBLIO_REGEX = re.compile(
+    r'\n\s*(?:рекомендована література|список (?:рекомендованої |основної |використаної )?літератури|основна література|допоміжна література|інформаційні ресурси|список джерел|перелік джерел|references|bibliography)\b.*',
+    re.IGNORECASE | re.DOTALL
+)
+
 def extract_linguistic_features(text: str) -> dict:
     cleaned = clean_text(text)
-    # spaCy nlp ліміт за замовчуванням 1_000_000 символів; беремо до 100_000
-    doc = nlp(cleaned.lower()[:100000])
-    found_techs = set()
+    
+    # Відокремлюємо список літератури, щоб автори та сторонні цитовані статті не спотворювали профіль курсу
+    core_text = cleaned
+    biblio_match = BIBLIO_REGEX.search(cleaned)
+    if biblio_match and biblio_match.start() > len(cleaned) * 0.25:
+        core_text = cleaned[:biblio_match.start()]
+
+    doc = nlp(core_text.lower()[:100000])
+    tech_counts = {}
     found_levels = set()
     
     matches = matcher(doc)
     for match_id, start, end in matches:
         span = doc[start:end]
-        found_techs.add(span.text)
+        t_text = span.text.strip()
+        tech_counts[t_text] = tech_counts.get(t_text, 0) + 1
         
     for token in doc:
         lemma_lower = token.lemma_.lower()
@@ -632,8 +661,11 @@ def extract_linguistic_features(text: str) -> dict:
         elif text_lower in BLOOM_DICT:
             found_levels.add(BLOOM_DICT[text_lower])
             
+    # Сортуємо виявлені технології за спаданням частоти входження в текст
+    sorted_techs = [t for t, count in sorted(tech_counts.items(), key=lambda x: x[1], reverse=True)]
+
     return {
-        "techs": list(found_techs),
+        "techs": sorted_techs,
         "bloom_levels": list(found_levels)
     }
 

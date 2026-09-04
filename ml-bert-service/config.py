@@ -27,8 +27,8 @@ BLOOM_ADJACENT_LEVEL_SCORE: float = 0.5
 BLOOM_ADJACENT_LEVEL_DISTANCE: int = 1
 TECH_COMPETENCY_CODES: List[str] = [
     "B.1", "B.2", "B.3", "B.4", "B.5", "B.6",
-    "A.5", "A.6", "C.1", "C.2", "C.3", "C.4",
-    "D.1", "D.7", "D.10", "E.2", "E.3", "E.8"
+    "A.5", "A.6", "A.8", "A.10", "C.1", "C.2", "C.3", "C.4", "C.5",
+    "D.1", "D.6", "D.7", "D.10", "D.11", "E.2", "E.3", "E.8"
 ]
 ECF_LOADER_ALPHA: float = 0.7
 
