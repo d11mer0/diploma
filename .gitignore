@@ -29,3 +29,8 @@ Thumbs.db
 *.zip
 *.log
 uploads/
+
+# Trained models
+models/fine_tuned_*
+ml-bert-service/models/fine_tuned_*
+

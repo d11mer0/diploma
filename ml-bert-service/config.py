@@ -20,12 +20,13 @@ CROSS_ENCODER_MODEL: str = "cross-encoder/stsb-distilroberta-base"
 W_SEMANTIC: float = 0.75
 W_TECH: float = 0.15
 W_BLOOM: float = 0.10
-RERANK_TOP_K: int = 15
+RERANK_TOP_K: int = 25
 BLOOM_ADJACENT_LEVEL_SCORE: float = 0.5
 BLOOM_ADJACENT_LEVEL_DISTANCE: int = 1
 TECH_COMPETENCY_CODES: List[str] = [
     "B.1", "B.2", "B.3", "B.4", "B.5", "B.6",
-    "A.5", "A.6", "C.1", "C.2", "C.3", "C.4"
+    "A.5", "A.6", "C.1", "C.2", "C.3", "C.4",
+    "D.1", "D.7", "D.10", "E.2", "E.3", "E.8"
 ]
 ECF_LOADER_ALPHA: float = 0.7
 

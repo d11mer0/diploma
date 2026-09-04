@@ -3,6 +3,7 @@ import { Container, Typography, Button, Box, CircularProgress, Alert, Paper, Gri
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import UpdateIcon from '@mui/icons-material/Update';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AppNavbar from '../components/AppNavbar';
 import api from '../api';
 
@@ -13,15 +14,17 @@ interface AdminPageProps {
 
 interface TrainingStats {
   totalValidatedSamples: number;
-  totalHistoricallyValidated: number; // ДОДАНО
+  totalHistoricallyValidated: number;
   lastTrainedAt: string | null;
   currentModelPath: string | null;
 }
 
-const MIN_SAMPLES_FOR_TRAINING = 20;
+// Адаптовано для демонстрації: 3 зразки (промисловий поріг: 20+)
+const MIN_SAMPLES_FOR_TRAINING = 3;
 
 const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
   const [loading, setLoading] = useState(false);
+  const [seedLoading, setSeedLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
@@ -57,6 +60,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
       setIsError(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSeedDemoData = async () => {
+    setSeedLoading(true);
+    setMessage('');
+    setIsError(false);
+    try {
+      const response = await api.post('/mappings/demo-seed-validations');
+      setMessage(response.data.message || 'Зразки успішно підготовлено для демонстрації!');
+      setIsError(false);
+      await fetchStats();
+    } catch (err: any) {
+      setMessage(err.response?.data?.message || 'Помилка підготовки зразків для демо.');
+      setIsError(true);
+    } finally {
+      setSeedLoading(false);
     }
   };
 
@@ -134,48 +154,63 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
             <Grid item xs={12} >
               <Paper elevation={3} sx={{ p: 4, mt: 2, textAlign: 'center' }}>
                 <Typography variant="h5" gutterBottom>
-                  Запуск донавчання (Fine-tuning)
+                  Запуск донавчання (Active Learning Fine-tuning)
                 </Typography>
                 <Typography variant="body1" sx={{ mb: 4, maxWidth: '800px', mx: 'auto', color: 'text.secondary' }}>
-                  Процес донавчання запустить оптимізацію нейромережі (Bi-Encoder) на основі зібраних експертних оцінок. 
-                  Для запобігання перенавчанню, запуск можливий лише при наявності мінімум <b>{MIN_SAMPLES_FOR_TRAINING}</b> нових зразків.
+                  Процес донавчання запускає оптимізацію нейромережі (Bi-Encoder) методом контрастивного навчання (TripletLoss) на основі валідованих експертами збігів. 
+                  Для наочної демонстрації поріг встановлено на мінімум <b>{MIN_SAMPLES_FOR_TRAINING}</b> нових зразків (рекомендований промисловий поріг: 20+ для запобігання перенавчанню).
                 </Typography>
 
-                <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                   <Button
-                    variant="contained"
-                    color="primary"
+                    variant="outlined"
+                    color="secondary"
                     size="large"
-                    startIcon={<ModelTrainingIcon />}
-                    onClick={handleTrainModel}
-                    disabled={loading || !isTrainingAllowed}
-                    sx={{ px: 4, py: 1.5, borderRadius: 2 }}
+                    startIcon={<AutoAwesomeIcon />}
+                    onClick={handleSeedDemoData}
+                    disabled={loading || seedLoading}
+                    sx={{ px: 3, py: 1.5, borderRadius: 2 }}
                   >
-                    {loading ? 'Триває донавчання...' : 'Запустити оновлення моделі'}
+                    {seedLoading ? 'Підготовка даних...' : 'Підготувати дані для демо (3 зразки)'}
                   </Button>
-                  
-                  {loading && (
-                    <CircularProgress
-                      size={30}
-                      sx={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        marginTop: '-15px',
-                        marginLeft: '-15px',
-                      }}
-                    />
-                  )}
+
+                  <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="large"
+                      startIcon={<ModelTrainingIcon />}
+                      onClick={handleTrainModel}
+                      disabled={loading || !isTrainingAllowed || seedLoading}
+                      sx={{ px: 4, py: 1.5, borderRadius: 2 }}
+                    >
+                      {loading ? 'Триває донавчання...' : 'Запустити оновлення моделі'}
+                    </Button>
+                    
+                    {loading && (
+                      <CircularProgress
+                        size={30}
+                        sx={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          marginTop: '-15px',
+                          marginLeft: '-15px',
+                        }}
+                      />
+                    )}
+                  </Box>
                 </Box>
 
                 {!isTrainingAllowed && !loading && (
-                  <Typography variant="body2" color="error" sx={{ mt: 2 }}>
-                    Недостатньо нових даних для донавчання. Потрібно ще {MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)} зразків.
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2.5 }}>
+                    Для запуску потрібно ще <b>{MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)}</b> валідованих зразків. 
+                    Ви можете валідувати їх вручну на сторінці силабусу або скористатися кнопкою швидкої підготовки для демо вище.
                   </Typography>
                 )}
 
                 {message && (
-                  <Alert severity={isError ? 'error' : 'success'} sx={{ mt: 4, maxWidth: '600px', mx: 'auto' }}>
+                  <Alert severity={isError ? 'error' : 'success'} sx={{ mt: 4, maxWidth: '650px', mx: 'auto' }}>
                     {message}
                   </Alert>
                 )}

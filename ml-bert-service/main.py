@@ -49,6 +49,124 @@ class PredictRequest(BaseModel):
     top_k: int = 5
     threshold: Optional[float] = Field(None, ge=0, le=1)
 
+# Доменна карта прив'язки технологій та інструментів до стандартів e-CF
+TECH_DOMAIN_MAP = {
+    # Data Science & Artificial Intelligence
+    "pytorch": ["D.7", "B.1"],
+    "tensorflow": ["D.7", "B.1"],
+    "scikit-learn": ["D.7", "B.1"],
+    "machine learning": ["D.7", "B.1"],
+    "deep learning": ["D.7", "B.1"],
+    "neural networks": ["D.7", "B.1"],
+    "neural network": ["D.7", "B.1"],
+    "data science": ["D.7", "D.10"],
+    "pandas": ["D.7", "D.10"],
+    "numpy": ["D.7"],
+    "nlp": ["D.7", "B.1"],
+    "computer vision": ["D.7", "B.1"],
+
+    # Database Systems & Data Management
+    "sql": ["D.10", "A.5", "B.1"],
+    "database": ["D.10", "A.5", "B.1"],
+    "databases": ["D.10", "A.5", "B.1"],
+    "relational database": ["D.10", "A.5", "B.1"],
+    "postgresql": ["D.10", "A.5", "B.1"],
+    "mysql": ["D.10", "A.5", "B.1"],
+    "mongodb": ["D.10", "A.5", "B.1"],
+    "nosql": ["D.10", "A.5", "B.1"],
+    "redis": ["D.10", "A.5", "B.1"],
+    "oracle": ["D.10", "A.5", "B.1"],
+    "acid": ["D.10", "A.5"],
+
+    # Cybersecurity & Information Security
+    "security": ["E.8", "D.1", "C.3"],
+    "cybersecurity": ["E.8", "D.1", "C.3"],
+    "cryptography": ["E.8", "D.1"],
+    "encryption": ["E.8", "D.1"],
+    "vulnerability": ["E.8", "D.1"],
+    "vulnerabilities": ["E.8", "D.1"],
+    "security audit": ["E.8", "D.1"],
+    "firewall": ["E.8", "C.1"],
+    "iso/iec 27001": ["E.8", "D.1"],
+    "iso 27001": ["E.8", "D.1"],
+    "penetration testing": ["E.8", "B.3"],
+    "owasp": ["E.8", "B.1"],
+
+    # IT Project Management & Agile
+    "scrum": ["E.2", "E.3"],
+    "agile": ["E.2", "E.3"],
+    "kanban": ["E.2", "E.3"],
+    "jira": ["E.2"],
+    "confluence": ["E.2", "B.5"],
+    "project management": ["E.2"],
+    "risk management": ["E.2", "E.8"],
+    "lifecycle": ["E.2", "B.1"],
+
+    # Software Engineering & Web
+    "react": ["B.1", "A.6"],
+    "angular": ["B.1", "A.6"],
+    "vue": ["B.1", "A.6"],
+    "node.js": ["B.1", "A.6", "A.5"],
+    "express": ["B.1", "A.5"],
+    "nestjs": ["B.1", "A.5"],
+    "fastapi": ["B.1", "A.5"],
+    "spring": ["B.1", "A.5"],
+    "django": ["B.1", "A.5"],
+    "rest": ["B.1", "A.5", "B.2"],
+    "rest api": ["B.1", "A.5", "B.2"],
+    "rest apis": ["B.1", "A.5", "B.2"],
+    "api": ["B.1", "B.2", "A.5"],
+    "client-server": ["A.5", "B.1"],
+    "software development": ["B.1"],
+
+    # Architecture & Design
+    "architecture": ["A.5", "A.6"],
+    "microservices": ["A.5", "B.1", "B.2"],
+    "microservice": ["A.5", "B.1", "B.2"],
+    "design patterns": ["A.5", "A.6", "B.1"],
+    "design pattern": ["A.5", "A.6", "B.1"],
+
+    # Testing & Quality Assurance
+    "testing": ["B.3"],
+    "unit test": ["B.3"],
+    "unit tests": ["B.3"],
+    "qa": ["B.3"],
+    "jest": ["B.3"],
+    "pytest": ["B.3"],
+    "selenium": ["B.3"],
+
+    # DevOps & Infrastructure
+    "docker": ["B.4", "C.1"],
+    "kubernetes": ["B.4", "C.1"],
+    "ci/cd": ["B.4"],
+    "aws": ["B.4", "C.1"],
+    "cloud": ["B.4", "C.1", "A.5"],
+    "devops": ["B.4", "C.1"],
+    "linux": ["C.1", "B.4"],
+    "git": ["B.1", "B.2", "B.4"]
+}
+
+def calculate_tech_relevance(found_techs: list, comp_code: str) -> float:
+    if not found_techs:
+        return 0.0
+    exact_score = 0.0
+    matched_specific = False
+    for t in found_techs:
+        key = t.lower().strip()
+        if key in TECH_DOMAIN_MAP:
+            target_codes = TECH_DOMAIN_MAP[key]
+            if comp_code in target_codes:
+                matched_specific = True
+                if target_codes and target_codes[0] == comp_code:
+                    exact_score += 1.0
+                else:
+                    exact_score += 0.65
+    if matched_specific:
+        return min(1.0, 0.60 + 0.20 * exact_score)
+    if comp_code in config.TECH_COMPETENCY_CODES:
+        return 0.25
+    return 0.0
+
 def process_single_text(text: str, top_k: int, threshold: Optional[float]):
     if not text or not text.strip():
         return {"results": []}
@@ -98,8 +216,8 @@ def process_single_text(text: str, top_k: int, threshold: Optional[float]):
     final_results = []
     for i, candidate in enumerate(top_candidates):
         m = candidate["mapping"]
-        c1_score = cross_scores[i]
-        c2_score = 1.0 if found_techs and m["competency_code"] in config.TECH_COMPETENCY_CODES else 0.0
+        c1_score = max(0.0, min(1.0, float(cross_scores[i])))
+        c2_score = calculate_tech_relevance(found_techs, m["competency_code"])
         c3_score = 0.0
         if found_bloom_levels:
             dist = min(abs(m["level"] - target_lvl) for target_lvl in found_bloom_levels)

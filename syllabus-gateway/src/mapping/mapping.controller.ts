@@ -1,4 +1,4 @@
-﻿import { Controller, Patch, Param, Post, Get, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Patch, Param, Post, Get, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { MappingService } from './mapping.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -37,5 +37,13 @@ export class MappingController {
   @Post('export-training-data')
   async exportTrainingData() {
     return this.mappingService.exportTrainingData();
+  }
+
+  @ApiOperation({ summary: 'Створити тестову розмітку (3-5 зразків) для демонстрації Active Learning' })
+  @ApiResponse({ status: 200, description: 'Повертає результат підготовки зразків для демо' })
+  @Roles('ADMIN')
+  @Post('demo-seed-validations')
+  async demoSeedValidations() {
+    return this.mappingService.demoSeedValidations();
   }
 }

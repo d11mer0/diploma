@@ -109,4 +109,46 @@ export class MappingService {
       throw new InternalServerErrorException('Помилка при запуску донавчання в ML-сервісі.');
     }
   }
+
+  async demoSeedValidations(): Promise<{ message: string; count: number }> {
+    // 1. Спочатку шукаємо наявні невалідовані результати мапінгу
+    const unvalidated = await this.prisma.mappingResult.findMany({
+      where: { expertValidated: false },
+      take: 5,
+    });
+
+    if (unvalidated.length > 0) {
+      const ids = unvalidated.map((m) => m.id);
+      await this.prisma.mappingResult.updateMany({
+        where: { id: { in: ids } },
+        data: { expertValidated: true, usedForTraining: false },
+      });
+      return {
+        message: `Успішно підготовлено та валідовано ${ids.length} зразків для демонстрації Active Learning.`,
+        count: ids.length,
+      };
+    }
+
+    // 2. Якщо всі вже валідовані, скидаємо стан 'usedForTraining' для перших 5 записів
+    const anyMappings = await this.prisma.mappingResult.findMany({
+      take: 5,
+    });
+
+    if (anyMappings.length > 0) {
+      const ids = anyMappings.map((m) => m.id);
+      await this.prisma.mappingResult.updateMany({
+        where: { id: { in: ids } },
+        data: { expertValidated: true, usedForTraining: false },
+      });
+      return {
+        message: `Скинуто стан та підготовлено ${ids.length} зразків для нового циклу донавчання.`,
+        count: ids.length,
+      };
+    }
+
+    return {
+      message: 'У базі даних ще немає результатів мапінгу. Спочатку завантажте силабус.',
+      count: 0,
+    };
+  }
 }
