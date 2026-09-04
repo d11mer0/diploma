@@ -3,4 +3,8 @@ __pycache__
 *.pyc
 .venv
 venv
+node_modules
+models
+checkpoints
 data/model_cache
+

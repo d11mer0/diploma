@@ -30,8 +30,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Монтуємо папку data, щоб донавчені моделі зберігалися при перезапуску
+      # Монтуємо папки data та models, щоб донавчені моделі та дані зберігалися при перезапуску
       - ./ml-bert-service/data:/app/data
+      - ./ml-bert-service/models:/app/models
 
   # 3. Бекенд (NestJS)
   backend:
