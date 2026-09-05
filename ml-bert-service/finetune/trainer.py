@@ -23,8 +23,8 @@ def run_finetuning(
     if not train_examples:
         return {"status": "error", "message": "Немає даних для навчання"}
 
-    # 2. Створюємо DataLoader
-    batch_size = 4 if len(train_examples) >= 4 else len(train_examples)
+    # 2. Створюємо DataLoader (batch_size=8 оптимізовано для векторних матричних інструкцій на CPU)
+    batch_size = 8 if len(train_examples) >= 8 else len(train_examples)
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
 
     # 3. Завантажуємо модель для неперервного донавчання (Continual Active Learning)
@@ -49,8 +49,8 @@ def run_finetuning(
         triplet_margin=0.15
     )
 
-    # 5. Адаптивні гіперпараметри: 4 епохи з LR=1.5e-5 забезпечують плавну збіжність без стиснення шкали
-    epochs = 4
+    # 5. Адаптивні гіперпараметри: 3 епохи з LR=1.5e-5 забезпечують швидку збіжність (~45-60с на CPU) без оверфітингу
+    epochs = 3
     lr = 1.5e-5
     warmup_steps = max(1, int(len(train_dataloader) * 0.1))
 

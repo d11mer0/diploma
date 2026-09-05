@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, Button, Box, CircularProgress, Alert, Paper, Grid, Card, CardContent, Divider } from '@mui/material';
+import { Container, Typography, Button, Box, CircularProgress, LinearProgress, Alert, Paper, Grid, Card, CardContent, Divider } from '@mui/material';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import UpdateIcon from '@mui/icons-material/Update';
@@ -24,11 +24,25 @@ const MIN_SAMPLES_FOR_TRAINING = 3;
 
 const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
   const [loading, setLoading] = useState(false);
+  const [trainingSeconds, setTrainingSeconds] = useState(0);
   const [seedLoading, setSeedLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [stats, setStats] = useState<TrainingStats | null>(null);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (loading) {
+      setTrainingSeconds(0);
+      interval = setInterval(() => {
+        setTrainingSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const fetchStats = async () => {
     setStatsLoading(true);
@@ -207,6 +221,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
                     Для запуску потрібно ще <b>{MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)}</b> валідованих зразків. 
                     Ви можете валідувати їх вручну на сторінці силабусу або скористатися кнопкою швидкої підготовки для демо вище.
                   </Typography>
+                )}
+
+                {loading && (
+                  <Box sx={{ mt: 3, maxWidth: '650px', mx: 'auto' }}>
+                    <Alert severity="info" sx={{ textAlign: 'left' }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                        Триває оптимізація нейромережі на сервері: {trainingSeconds} с
+                      </Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        Генеруються навчальні тріплети (Anchor, Positive, Hard Negative), підмішуються опорні стратифіковані тріплети для збереження знань (Rehearsal проти катастрофічного забування) та виконується зворотне поширення помилки (Backpropagation, 3 епохи).
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontWeight: 'bold' }}>
+                        Очікуваний час виконання на CPU: ~45–60 с. Сторінка залишається активною.
+                      </Typography>
+                      <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />
+                    </Alert>
+                  </Box>
                 )}
 
                 {message && (

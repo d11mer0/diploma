@@ -156,15 +156,9 @@ export class SyllabusService {
       ? syllabusText.substring(0, MAX_SYLLABUS_CHARS) 
       : syllabusText;
     
-    let textToAnalyze = truncatedText;
-    try {
-      console.log(`Починаємо переклад тексту (довжина: ${truncatedText.length} символів)...`);
-      textToAnalyze = await translate(truncatedText, 'en');
-      console.log('Переклад успішно завершено.');
-    } catch (error) {
-      console.error('Помилка або ліміт при перекладі тексту. Використовуємо оригінальний текст (ML-сервіс підтримує українські терміни).', error);
-      textToAnalyze = truncatedText;
-    }
+    // ML-сервіс використовує мультимовну модель paraphrase-multilingual-MiniLM-L12-v2
+    // з нативною підтримкою української мови, тому надсилаємо оригінальний текст без затримок перекладу
+    const textToAnalyze = truncatedText;
     
     const analysisResult = await this.mlClientService.predictCompetencies(textToAnalyze, query.topK, query.threshold);
     
