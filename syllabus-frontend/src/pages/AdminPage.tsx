@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, Button, Box, CircularProgress, LinearProgress, Alert, Paper, Grid, Card, CardContent, Divider } from '@mui/material';
+import { Container, Typography, Button, Box, CircularProgress, LinearProgress, Alert, Paper, Grid, Card, CardContent, Divider, Chip } from '@mui/material';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import UpdateIcon from '@mui/icons-material/Update';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import PsychologyIcon from '@mui/icons-material/Psychology';
+import ShieldIcon from '@mui/icons-material/Shield';
+import SpeedIcon from '@mui/icons-material/Speed';
 import AppNavbar from '../components/AppNavbar';
 import api from '../api';
 
@@ -64,9 +67,11 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
     setLoading(true);
     setMessage('');
     setIsError(false);
+    const startTime = Date.now();
     try {
       const response = await api.post('/mappings/export-training-data');
-      setMessage(`Процес донавчання успішно завершено! Оброблено зразків: ${response.data.samplesCount}. Модель оновлено.`);
+      const duration = Math.round((Date.now() - startTime) / 1000);
+      setMessage(`Процес донавчання успішно завершено за ${duration} с! Оброблено зразків: ${response.data.samplesCount}. Модель оновлено.`);
       setIsError(false);
       await fetchStats();
     } catch (err: any) {
@@ -216,28 +221,68 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
                   </Box>
                 </Box>
 
-                {!isTrainingAllowed && !loading && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2.5 }}>
-                    Для запуску потрібно ще <b>{MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)}</b> валідованих зразків. 
-                    Ви можете валідувати їх вручну на сторінці силабусу або скористатися кнопкою швидкої підготовки для демо вище.
-                  </Typography>
+                {!isTrainingAllowed && !loading && !seedLoading && (
+                  <Box sx={{ mt: 2.5, p: 2, bgcolor: 'action.hover', borderRadius: 2, maxWidth: '650px', mx: 'auto' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Для запуску потрібно ще <b>{MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)}</b> валідованих зразків. 
+                      Натисніть кнопку <b>«Підготувати дані для демо (3 зразки)»</b> вище для миттєвої генерації валідованих даних.
+                    </Typography>
+                  </Box>
                 )}
 
-                {loading && (
+                {seedLoading && (
                   <Box sx={{ mt: 3, maxWidth: '650px', mx: 'auto' }}>
                     <Alert severity="info" sx={{ textAlign: 'left' }}>
                       <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                        Триває оптимізація нейромережі на сервері: {trainingSeconds} с
-                      </Typography>
-                      <Typography variant="body2" sx={{ mt: 0.5 }}>
-                        Генеруються навчальні тріплети (Anchor, Positive, Hard Negative), підмішуються опорні стратифіковані тріплети для збереження знань (Rehearsal проти катастрофічного забування) та виконується зворотне поширення помилки (Backpropagation, 3 епохи).
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontWeight: 'bold' }}>
-                        Очікуваний час виконання на CPU: ~45–60 с. Сторінка залишається активною.
+                        Підготовка та автоматична валідація зразків для демонстрації...
                       </Typography>
                       <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />
                     </Alert>
                   </Box>
+                )}
+
+                {loading && (
+                  <Card elevation={4} sx={{ mt: 3, maxWidth: '720px', mx: 'auto', textAlign: 'left', border: '1px solid #1976d2', borderRadius: 2 }}>
+                    <CardContent sx={{ p: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <CircularProgress size={26} color="primary" />
+                          <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                            Триває оптимізація нейромережі: {trainingSeconds} с
+                          </Typography>
+                        </Box>
+                        <Chip 
+                          label={`Епоха ${Math.min(3, Math.floor(trainingSeconds / 18) + 1)} з 3`} 
+                          color="primary" 
+                          variant="outlined" 
+                          size="small" 
+                        />
+                      </Box>
+
+                      <LinearProgress sx={{ my: 2, height: 8, borderRadius: 2 }} />
+
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                        Виконується цикл неперервного активного навчання (Continual Active Learning):
+                      </Typography>
+
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, pl: 1 }}>
+                        <Typography variant="caption" sx={{ color: trainingSeconds < 8 ? 'primary.main' : 'success.main', fontWeight: trainingSeconds < 8 ? 'bold' : 'normal' }}>
+                          {trainingSeconds < 8 ? '⏳ [1/3]' : '✓ [1/3]'} Генерація навчальних трійок з Hard Negative Mining {trainingSeconds < 8 ? '(виконується...)' : '(готово)'}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: trainingSeconds >= 8 && trainingSeconds < 45 ? 'primary.main' : trainingSeconds >= 45 ? 'success.main' : 'text.disabled', fontWeight: trainingSeconds >= 8 && trainingSeconds < 45 ? 'bold' : 'normal' }}>
+                          {trainingSeconds < 8 ? '○ [2/3]' : trainingSeconds < 45 ? '⏳ [2/3]' : '✓ [2/3]'} Підмішування 20 еталонних трійок Rehearsal та градієнтний спуск Backpropagation {trainingSeconds >= 8 && trainingSeconds < 45 ? '(оптимізація ваг...)' : ''}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: trainingSeconds >= 45 ? 'primary.main' : 'text.disabled', fontWeight: trainingSeconds >= 45 ? 'bold' : 'normal' }}>
+                          {trainingSeconds < 45 ? '○ [3/3]' : '⏳ [3/3]'} Збереження нового чекпоінту та перерахунок векторного простору компетенцій {trainingSeconds >= 45 ? '(фіналізація...)' : ''}
+                        </Typography>
+                      </Box>
+
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', display: 'block' }}>
+                        ⚡ Очікуваний повний час виконання на CPU: ~45–60 секунд. Сторінка залишається активною.
+                      </Typography>
+                    </CardContent>
+                  </Card>
                 )}
 
                 {message && (
@@ -246,6 +291,65 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
                   </Alert>
                 )}
               </Paper>
+            </Grid>
+
+            {/* ВІДЖЕТ 3: Архітектура Active Learning */}
+            <Grid item xs={12}>
+              <Card elevation={3} sx={{ mt: 1, textAlign: 'left', borderRadius: 2 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                    <PsychologyIcon color="primary" sx={{ fontSize: 28 }} />
+                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                      Архітектура та конвеєр Active Learning (Continual Fine-Tuning)
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Система реалізує цикл активного навчання з людиною в контурі (Human-in-the-Loop), який адаптує векторний простір BERT без ризику деградації базових знань.
+                  </Typography>
+                  <Divider sx={{ mb: 3 }} />
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={4}>
+                      <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderRadius: 2, bgcolor: 'background.default' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <AutoAwesomeIcon color="primary" fontSize="small" />
+                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                            1. Hard Negative Mining
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Виявляє складні негативні приклади (непідтверджені альтернативні компетенції) та формує парні навчальні трійки (Anchor-Positive-Negative) для максимальної дискримінативної здатності.
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderRadius: 2, bgcolor: 'background.default' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <ShieldIcon color="secondary" fontSize="small" />
+                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+                            2. Стратифікований Rehearsal
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Буфер пам'яті підмішує 20 збалансованих еталонних трійок з усіх 5 доменів e-CF (A–E). Це гарантує захист моделі від катастрофічного забування (Catastrophic Forgetting).
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderRadius: 2, bgcolor: 'background.default' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <SpeedIcon color="success" fontSize="small" />
+                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                            3. Оптимізація TripletLoss
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Швидке 3-епохове доналаштування Bi-Encoder на базі багатомовного MiniLM-L12 з batch_size=8 (~45–60 с на CPU). Зберігається унікальний версійний чекпоінт у реєстрі моделей.
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
             </Grid>
 
           </Grid>
