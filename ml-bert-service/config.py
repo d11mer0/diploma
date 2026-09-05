@@ -8,12 +8,12 @@ SPACY_MODEL: str = "en_core_web_sm"
 TECH_DICT_PATH: str = "tech_dict.json"
 BLOOM_DICT_PATH: str = "bloom_dict.json"
 ECF_DATA_PATH: str = "ecf_data.json"
-FINETUNED_MODEL_GLOB: str = "models/fine_tuned_sbert_v*"
-FINETUNED_MODEL_PREFIX: str = "models/fine_tuned_sbert_v"
+FINETUNED_MODEL_GLOB: str = "models/fine_tuned_multilingual_v*"
+FINETUNED_MODEL_PREFIX: str = "models/fine_tuned_multilingual_v"
 
 # --- MODELS ---
-# ПОВЕРТАЄМОСЯ до легшої та більш стабільної для нашої задачі моделі
-BI_ENCODER_MODEL: str = "all-MiniLM-L6-v2"
+# Мультимовна Bi-Encoder модель з нативною підтримкою української та англійської мов
+BI_ENCODER_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"
 CROSS_ENCODER_MODEL: str = "cross-encoder/stsb-distilroberta-base"
 
 # --- SCORING ---
@@ -22,7 +22,7 @@ W_TECH: float = 0.20
 W_BLOOM: float = 0.10
 W_BI_ENCODER: float = 0.40      # Вага донавченої Bi-Encoder моделі у семантичному критерії C1
 W_CROSS_ENCODER: float = 0.60   # Вага контекстуального Cross-Encoder у семантичному критерії C1
-RERANK_TOP_K: int = 25
+RERANK_TOP_K: int = 15
 BLOOM_ADJACENT_LEVEL_SCORE: float = 0.5
 BLOOM_ADJACENT_LEVEL_DISTANCE: int = 1
 TECH_COMPETENCY_CODES: List[str] = [

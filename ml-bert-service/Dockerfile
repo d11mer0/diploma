@@ -23,7 +23,7 @@ RUN python -m spacy download en_core_web_sm
 # Це збільшить час створення образу, але сервіс запускатиметься миттєво
 # Додаємо скрипт для попереднього завантаження моделей
 RUN echo "from sentence_transformers import SentenceTransformer, CrossEncoder\n\
-SentenceTransformer('all-MiniLM-L6-v2')\n\
+SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')\n\
 CrossEncoder('cross-encoder/stsb-distilroberta-base')\n" > predownload.py
 RUN python predownload.py
 

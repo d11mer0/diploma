@@ -1,5 +1,6 @@
 import uvicorn
 import json
+import numpy as np
 import spacy
 import time
 import os
@@ -258,6 +259,9 @@ TECH_DOMAIN_MAP = {
     # Digital Marketing (D.6)
     "веб-аналітика": ["D.6", "D.7"],
     "цифровий маркетинг": ["D.6"],
+    "інтернет-маркетинг": ["D.6"],
+    "маркетинг": ["D.6"],
+    "digital marketing": ["D.6"],
 
     # Sustainability Management (A.8)
     "green computing": ["A.8"],
@@ -282,26 +286,69 @@ TECH_DOMAIN_MAP = {
     "software architecture": ["A.5", "A.6"],
     "software design": ["A.5", "A.6"],
 
-    # System Integration (B.2)
+    # System Integration & Web Development (B.1, B.2)
     "інтеграція інформаційних систем": ["B.2"],
     "інтеграція систем": ["B.2"],
     "системна інтеграція": ["B.2"],
     "system integration": ["B.2"],
     "systems integration": ["B.2"],
-    "компонентна інтеграція": ["B.2"]
+    "компонентна інтеграція": ["B.2"],
+    "веб-орієнтовані системи": ["B.1", "A.6"],
+    "веб-орієнтованих систем": ["B.1", "A.6"],
+    "web-орієнтовані системи": ["B.1", "A.6"],
+    "web-орієнтованих систем": ["B.1", "A.6"],
+    "веб-розробка": ["B.1", "A.6"],
+    "web-розробка": ["B.1", "A.6"],
+    "розробка web-орієнтованих систем": ["B.1", "A.6"],
+    "розробка веб-орієнтованих систем": ["B.1", "A.6"]
 }
 
 def extract_course_title(text: str) -> str:
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-    header_labels = {
-        'силабус освітнього компонента', 'програма навчальної дисципліни',
-        'силабус навчальної дисципліни', 'робоча програма навчальної дисципліни',
-        'назва дисципліни', 'освітній компонент', 'skip to main content',
-        'toggle navigation', 'головна', 'каталог освітніх програм', 'укр', 'eng'
-    }
+    
+    # 1. Пошук явного маркерного рядка дисципліни (наступний рядок після "робоча програма...", "силабус...", тощо)
+    program_marker_regex = re.compile(
+        r'^(?:р+о+б+о+ч+а+\s+п+р+о+г+р+а+м+а+|програма навчальної дисципліни|силабус|назва дисципліни|освітній компонент)\b',
+        re.IGNORECASE
+    )
+    
+    for idx, line in enumerate(lines[:35]):
+        clean = re.sub(r'^(?:[«"\'\s\.\-_]+|\d+[\.\)]\s*)', '', line).strip()
+        clean = re.sub(r'[»"\'\s]+$', '', clean).strip()
+        clean = re.sub(r'\s+', ' ', clean)
+        
+        if program_marker_regex.search(clean.lower()):
+            for next_line in lines[idx+1:idx+6]:
+                next_clean = re.sub(r'\.(?:docx|pdf|txt|doc)$', '', next_line, flags=re.IGNORECASE).strip()
+                next_clean = re.sub(r'^(?:[«"\'\s\.\-_]+|\d+[\.\)]\s*)', '', next_clean).strip()
+                next_clean = re.sub(r'[»"\'\s]+$', '', next_clean).strip()
+                next_clean = re.sub(r'\s+', ' ', next_clean)
+                next_lower = next_clean.lower()
+                
+                if next_lower in {'навчальної дисципліни', 'освітнього компонента', 'дисципліни', 'програми'}:
+                    continue
+                if len(next_clean) > 2 and not any(next_lower.startswith(p) for p in [
+                    'для студентів', 'галузь', 'спеціальність', 'освітня програма', 'освітній рівень', 'семестр'
+                ]):
+                    next_clean = re.sub(r'\s*-\s*', '-', next_clean)
+                    return next_clean
+
+    # 2. Евристичний фільтр адміністративних шапок університетів
+    skip_prefixes = [
+        'шифр', 'спеціальність', 'інститут', 'кафедра', 'семестр', 'рівень',
+        'тип', 'мова', 'викладач', 'код', 'кількість', 'лектор',
+        'університет', 'київський', 'харківський', 'львівськ', 'національн',
+        'факультет', 'імені', 'затверджую', 'затверджено', 'схвалено',
+        'заступник', 'декан', 'проректор', 'галузь', 'з навчальної',
+        'освітня програма', 'освітній рівень', 'форма навчання', 'навчальний рік',
+        'пролонговано', 'розробник', 'для студентів', 'skip to', 'toggle', 'головна', 'каталог'
+    ]
     skip_next = False
-    for line in lines[:14]:
+    for line in lines[:30]:
         clean_line = re.sub(r'\.(?:docx|pdf|txt|doc)$', '', line, flags=re.IGNORECASE).strip()
+        clean_line = re.sub(r'^(?:[«"\'\s\.\-_]+|\d+[\.\)]\s*)', '', clean_line).strip()
+        clean_line = re.sub(r'[»"\'\s]+$', '', clean_line).strip()
+        clean_line = re.sub(r'\s+', ' ', clean_line).strip()
         lower = clean_line.lower()
         if 'каталог освітніх програм' in lower:
             skip_next = True
@@ -309,12 +356,12 @@ def extract_course_title(text: str) -> str:
         if skip_next:
             skip_next = False
             continue
-        if lower in header_labels:
+        if any(lower.startswith(p) for p in skip_prefixes):
             continue
-        if len(clean_line) > 3 and not any(lower.startswith(p) for p in [
-            'шифр', 'спеціальність', 'інститут', 'кафедра', 'семестр', 'рівень',
-            'тип', 'мова', 'викладач', 'код', 'кількість', 'лектор'
-        ]):
+        if re.match(r'^(?:«\s*»|20\d\d|\d+[\.\)]|\(\s*\)|[–\-_]{2,}|[А-ЯA-Z]\.[А-ЯA-Z\s]+$)', clean_line):
+            continue
+        if len(clean_line) > 3:
+            clean_line = re.sub(r'\s*-\s*', '-', clean_line)
             return clean_line
     return lines[0] if lines else ""
 
@@ -451,22 +498,28 @@ def process_single_text(
         chunks = [text]
 
     # 2. Отримуємо ембеддінги всіх чанків батчем
-    chunk_embeddings = MODEL.embed_batch(chunks)
+    chunk_embeddings = np.array(MODEL.embed_batch(chunks))
+    c_norm = chunk_embeddings / (np.linalg.norm(chunk_embeddings, axis=1, keepdims=True) + 1e-9)
     mappings = ECF_STORE.get_all_mappings()
     
-    # 3. Max-Passage Retrieval (MaxP): для кожної компетенції шукаємо найбільш релевантний пасаж у тексті
+    # 3. Векторизований Max-Passage Retrieval (MaxP):
+    # Обчислюємо матрицю косинусної близькості між усіма чанками та 113 рівнями e-CF за 10 мс
+    if hasattr(ECF_STORE, 'norm_matrix'):
+        m_norm = ECF_STORE.norm_matrix
+    else:
+        m_mat = np.array([m["combined_emb"] for m in mappings])
+        m_norm = m_mat / (np.linalg.norm(m_mat, axis=1, keepdims=True) + 1e-9)
+
+    sim_matrix = np.dot(c_norm, m_norm.T)  # shape: (N_chunks, 113)
+    best_chunk_indices = np.argmax(sim_matrix, axis=0)  # shape: (113,)
+    best_scores = np.max(sim_matrix, axis=0)  # shape: (113,)
+
     retrieval_candidates = []
-    for m in mappings:
-        best_score = -1.0
-        best_chunk = chunks[0]
-        for i, c_emb in enumerate(chunk_embeddings):
-            score = cosine_similarity_vec(c_emb, m["combined_emb"])
-            if score > best_score:
-                best_score = score
-                best_chunk = chunks[i]
+    for j, m in enumerate(mappings):
+        best_score = float(best_scores[j])
+        best_chunk = chunks[int(best_chunk_indices[j])]
 
         # Гібридний бал 1-го етапу (Bi-Encoder + Dynamic Domain Specificity Prior):
-        # Гарантує, що цільові компетенції з високою доменною специфічністю отримують пріоритет
         tech_prior = tech_rel_map.get(m["competency_code"], 0.15 if m["competency_code"] in config.TECH_COMPETENCY_CODES else 0.0)
         stage1_score = best_score + (0.35 * tech_prior)
 

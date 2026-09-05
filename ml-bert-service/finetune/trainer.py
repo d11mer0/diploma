@@ -34,7 +34,8 @@ def run_finetuning(
     elif os.path.exists(output_dir):
         model_name = output_dir
     else:
-        model_name = "all-MiniLM-L6-v2"
+        import config
+        model_name = config.BI_ENCODER_MODEL
 
     print(f"[Continual Learning] Завантаження вихідної моделі: {model_name}...")
     model = SentenceTransformer(model_name)

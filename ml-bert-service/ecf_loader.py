@@ -1,4 +1,5 @@
 import json
+import numpy as np
 from sentence_transformers import util
 import torch
 
@@ -40,6 +41,8 @@ class ECFEmbeddingStore:
         # ВИПРАВЛЕНО: Використовуємо embed_batch без show_progress_bar
         all_texts = [m['combined_text'] for m in self.mappings]
         embeddings = self.model.embed_batch(all_texts)
+        self.matrix = np.array(embeddings)
+        self.norm_matrix = self.matrix / (np.linalg.norm(self.matrix, axis=1, keepdims=True) + 1e-9)
 
         for i, m in enumerate(self.mappings):
             m['combined_emb'] = embeddings[i]
