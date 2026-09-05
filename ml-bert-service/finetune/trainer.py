@@ -41,17 +41,17 @@ def run_finetuning(
     model = SentenceTransformer(model_name)
 
     # 4. Визначаємо функцію втрат (Contrastive Learning - TripletLoss)
-    # tripplet_margin=0.2 є оптимальним для косинусної відстані на одиничній гіперсфері,
-    # запобігаючи перенавчанню та руйнуванню ортогональності вимірів e-CF.
+    # triplet_margin=0.15 забезпечує оптимальний компроміс між контрастною сепарацією
+    # та збереженням високої верхньої межі косинусної близькості для еталонних позитивів.
     train_loss = losses.TripletLoss(
         model=model,
         distance_metric=losses.TripletDistanceMetric.COSINE,
-        triplet_margin=0.2
+        triplet_margin=0.15
     )
 
-    # 5. Адаптивні гіперпараметри: 4-5 епох з LR=2e-5 забезпечують м'яку збіжність без дрейфу
+    # 5. Адаптивні гіперпараметри: 4 епохи з LR=1.5e-5 забезпечують плавну збіжність без стиснення шкали
     epochs = 4
-    lr = 2e-5
+    lr = 1.5e-5
     warmup_steps = max(1, int(len(train_dataloader) * 0.1))
 
     # 6. Запускаємо оптимізацію

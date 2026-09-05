@@ -584,8 +584,13 @@ def process_single_text(
         raw_bi = candidate.get("raw_bi_score", candidate["score"])
         norm_bi = max(0.0, min(1.0, (raw_bi + 0.2) / 0.8))
 
-        # Ансамбль C1: поєднує активний донавчений Bi-Encoder та контекстуальний Cross-Encoder
-        c1_score = (config.W_BI_ENCODER * norm_bi) + (config.W_CROSS_ENCODER * raw_cross)
+        # Ансамбль C1: адаптивне динамічне зважування.
+        # Для донавченої моделі Bi-Encoder отримує пріоритетну вагу (0.55), оскільки адаптований під e-CF,
+        # тоді як для базової моделі більша вага залишається за Cross-Encoder (0.60).
+        is_finetuned = "fine_tuned" in MODEL.current_model_path
+        cur_w_bi = 0.55 if is_finetuned else config.W_BI_ENCODER
+        cur_w_cross = 0.45 if is_finetuned else config.W_CROSS_ENCODER
+        c1_score = (cur_w_bi * norm_bi) + (cur_w_cross * raw_cross)
 
         # Динамічно зважена оцінка доменної специфічності технологій
         c2_score = tech_rel_map.get(m["competency_code"], 0.15 if m["competency_code"] in config.TECH_COMPETENCY_CODES else 0.0)

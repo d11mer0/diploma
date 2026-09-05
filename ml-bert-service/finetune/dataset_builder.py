@@ -60,39 +60,39 @@ def get_stratified_rehearsal_triplets() -> List[InputExample]:
     окремої категорії (наприклад, B.1 чи C.1) та захищаючи від катастрофічного забування.
     """
     canonical_samples = [
-        # Dimension A: Architecture / Plan
+        # Dimension A: Architecture / Plan -> Neg: C (Operations)
         ("IT enterprise architecture, system component specifications, microservices patterns, software modeling [Domain technologies: architecture, microservices, design patterns]",
          "Architecture Design. Specifies and designs technical architecture and systems solutions.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Systems Management. Administers, configures and optimizes computer networks, operating systems and system hardware."),
         ("Архітектура програмних систем, проектування компонентів, мікросервісна архітектура та шаблони проектування [Domain technologies: microservices, design patterns]",
          "Architecture Design. Specifies and designs technical architecture and systems solutions.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Systems Management. Administers, configures and optimizes computer networks, operating systems and system hardware."),
 
-        # Dimension B: Development / Build
+        # Dimension B: Development / Build -> Neg: E (Security)
         ("Software application programming, backend API implementation, web application development [Domain technologies: python, java, javascript, rest api]",
          "Application Development. Interprets the application design to develop and write reliable software code.",
-         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
+         "Information Security Management. Implements security policy and monitors cyber threats and vulnerabilities."),
         ("Розробка програмного забезпечення, створення веб-додатків, програмування серверних та клієнтських компонентів [Domain technologies: java, python, javascript]",
          "Application Development. Interprets the application design to develop and write reliable software code.",
-         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
+         "Information Security Management. Implements security policy and monitors cyber threats and vulnerabilities."),
 
-        # Dimension C: Cloud & Operations / Run
+        # Dimension C: Cloud & Operations / Run -> Neg: D (Data Science)
         ("Production cloud operations, service delivery, kubernetes container orchestration, infrastructure monitoring [Domain technologies: cloud, kubernetes, docker, ci/cd]",
          "Service Delivery. Ensures that service delivery meets agreed quality, availability and security levels.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data."),
         ("Хмарні обчислення, хмарні технології, віртуалізація, адміністрування та моніторинг хмарної інфраструктури [Domain technologies: cloud, kubernetes, aws, azure]",
          "Service Delivery. Ensures that service delivery meets agreed quality, availability and security levels.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data."),
 
-        # Dimension D: Data Science & AI / Enable
+        # Dimension D: Data Science & AI / Enable -> Neg: A (Architecture)
         ("Machine learning models, neural networks, statistical analytics, big data science [Domain technologies: machine learning, data science, python]",
          "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
         ("Штучний інтелект, машинне навчання, глибоке навчання, нейронні мережі та аналіз даних [Domain technologies: машинне навчання, штучний інтелект, python]",
          "Data Science and Analytics. Applies machine learning and statistical methods to extract knowledge from complex data.",
-         "Application Development. Interprets the application design to develop and write reliable software code."),
+         "Architecture Design. Specifies and designs technical architecture and systems solutions."),
 
-        # Dimension E: Cybersecurity & Governance / Manage
+        # Dimension E: Cybersecurity & Governance / Manage -> Neg: B (Development)
         ("Cybersecurity defense, cryptography algorithms, penetration testing, security audit and threat monitoring [Domain technologies: кібербезпека, cryptography, security audit]",
          "Information Security Management. Implements security policy and monitors cyber threats and vulnerabilities.",
          "Application Development. Interprets the application design to develop and write reliable software code."),
