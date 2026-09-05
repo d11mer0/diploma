@@ -19,7 +19,7 @@ export class SyllabusController {
   @Post('analyze/file')
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Аналіз силабусу з файлу (PDF, DOCX, HTML)' })
+  @ApiOperation({ summary: 'Аналіз силабусу з файлу (PDF, DOCX, TXT, HTML)' })
   @ApiBody({
     schema: {
       type: 'object',

@@ -84,8 +84,9 @@ const UploadModal: React.FC<UploadModalProps> = ({ open, onClose, onUploadSucces
         await api.post('/syllabus/analyze/text', { text, threshold: thresholdValue });
       }
       onUploadSuccess();
-    } catch (err) {
-      setError('Помилка аналізу.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Помилка аналізу.';
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
     }
@@ -111,9 +112,17 @@ const UploadModal: React.FC<UploadModalProps> = ({ open, onClose, onUploadSucces
           <Box>
             <Button variant="contained" component="label" disabled={loading}>
               Вибрати файл
-              <input type="file" hidden onChange={handleFileChange} />
+              <input 
+                type="file" 
+                accept=".pdf,.docx,.doc,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+                hidden 
+                onChange={handleFileChange} 
+              />
             </Button>
             {file && <Typography sx={{ ml: 2, display: 'inline' }}>{file.name}</Typography>}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Підтримувані формати: PDF, DOCX, TXT
+            </Typography>
           </Box>
         )}
 

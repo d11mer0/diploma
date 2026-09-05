@@ -11,19 +11,31 @@ export class FileParserService {
       throw new BadRequestException('Файл не було надано.');
     }
 
-    switch (file.mimetype) {
-      case 'application/pdf':
-        return this.parsePdf(file.buffer);
-      
-      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': // .docx
-        return this.parseDocx(file.buffer);
+    const lowerName = file.originalname ? file.originalname.toLowerCase() : '';
+    const mimetype = file.mimetype ? file.mimetype.toLowerCase() : '';
 
-      case 'text/html':
-        return this.parseHtml(file.buffer);
-
-      default:
-        throw new BadRequestException(`Непідтримуваний тип файлу: ${file.mimetype}`);
+    if (mimetype === 'application/pdf' || lowerName.endsWith('.pdf')) {
+      return this.parsePdf(file.buffer);
     }
+
+    if (
+      mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      mimetype === 'application/msword' ||
+      lowerName.endsWith('.docx') ||
+      lowerName.endsWith('.doc')
+    ) {
+      return this.parseDocx(file.buffer);
+    }
+
+    if (mimetype === 'text/html' || lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
+      return this.parseHtml(file.buffer);
+    }
+
+    if (mimetype.startsWith('text/plain') || mimetype === 'text/plain' || lowerName.endsWith('.txt')) {
+      return file.buffer.toString('utf-8');
+    }
+
+    throw new BadRequestException(`Непідтримуваний тип файлу: ${file.mimetype || file.originalname}. Підтримуються формати PDF, DOCX, TXT.`);
   }
 
   private async parsePdf(buffer: Buffer): Promise<string> {
