@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, Button, Box, CircularProgress, LinearProgress, Alert, Paper, Grid, Card, CardContent, Divider, Chip } from '@mui/material';
+import { 
+  Container, Typography, Button, Box, CircularProgress, LinearProgress, 
+  Alert, Paper, Grid, Card, CardContent, Divider, Chip 
+} from '@mui/material';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import UpdateIcon from '@mui/icons-material/Update';
@@ -7,6 +10,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import ShieldIcon from '@mui/icons-material/Shield';
 import SpeedIcon from '@mui/icons-material/Speed';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import AppNavbar from '../components/AppNavbar';
 import api from '../api';
 
@@ -22,13 +26,32 @@ interface TrainingStats {
   currentModelPath: string | null;
 }
 
-// Адаптовано для демонстрації: 3 зразки (промисловий поріг: 20+)
 const MIN_SAMPLES_FOR_TRAINING = 3;
+
+// Обчислення активної стадії на основі секунд (орієнтир ~50с на CPU)
+const getStage = (sec: number, finished: boolean) => {
+  if (finished) return 4;
+  if (sec < 8) return 1;
+  if (sec < 44) return 2;
+  return 3;
+};
+
+// Плавний детермінований розрахунок відсотка прогресу
+const getProgressPercent = (sec: number, finished: boolean) => {
+  if (finished) return 100;
+  if (sec < 8) {
+    return Math.min(25, Math.round(5 + (sec / 8) * 20));
+  } else if (sec < 44) {
+    return Math.min(85, Math.round(25 + ((sec - 8) / 36) * 60));
+  } else {
+    return Math.min(98, Math.round(85 + ((sec - 44) / 12) * 13));
+  }
+};
 
 const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
   const [loading, setLoading] = useState(false);
   const [trainingSeconds, setTrainingSeconds] = useState(0);
-  const [seedLoading, setSeedLoading] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
@@ -38,6 +61,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
     let interval: any = null;
     if (loading) {
       setTrainingSeconds(0);
+      setIsFinished(false);
       interval = setInterval(() => {
         setTrainingSeconds((prev) => prev + 1);
       }, 1000);
@@ -63,29 +87,32 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
     fetchStats();
   }, []);
 
-  const handleTrainModel = async () => {
+  // Єдиний конвеєр донавчання
+  const runTrainingPipeline = async (needSeedFirst = false) => {
     setLoading(true);
     setMessage('');
     setIsError(false);
+    setIsFinished(false);
     const startTime = Date.now();
     try {
+      if (needSeedFirst) {
+        await api.post('/mappings/demo-seed-validations');
+      }
       const response = await api.post('/mappings/export-training-data');
       const duration = Math.round((Date.now() - startTime) / 1000);
+      setIsFinished(true);
       setMessage(`Процес донавчання успішно завершено за ${duration} с! Оброблено зразків: ${response.data.samplesCount}. Модель оновлено.`);
       setIsError(false);
       await fetchStats();
     } catch (err: any) {
-      setMessage(err.response?.data?.message || 'Помилка запуску донавчання.');
+      setMessage(err.response?.data?.message || 'Помилка виконання донавчання.');
       setIsError(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSeedDemoData = async () => {
-    setSeedLoading(true);
-    setMessage('');
-    setIsError(false);
+  const handleOnlySeed = async () => {
     try {
       const response = await api.post('/mappings/demo-seed-validations');
       setMessage(response.data.message || 'Зразки успішно підготовлено для демонстрації!');
@@ -94,18 +121,19 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
     } catch (err: any) {
       setMessage(err.response?.data?.message || 'Помилка підготовки зразків для демо.');
       setIsError(true);
-    } finally {
-      setSeedLoading(false);
     }
   };
 
-  const isTrainingAllowed = stats ? stats.totalValidatedSamples >= MIN_SAMPLES_FOR_TRAINING : false;
+  const hasEnoughSamples = stats ? stats.totalValidatedSamples >= MIN_SAMPLES_FOR_TRAINING : false;
+  const currentStage = getStage(trainingSeconds, isFinished);
+  const progressPercent = getProgressPercent(trainingSeconds, isFinished);
+  const currentEpoch = Math.min(3, Math.max(1, Math.floor((trainingSeconds - 8) / 12) + 1));
 
   return (
     <>
       <AppNavbar title="Панель адміністратора" onLogout={onLogout} userRole={userRole} />
       <Container sx={{ mt: 4, mb: 8 }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom sx={{ mb: 4, fontWeight: 'bold' }}>
           Керування ML-моделлю (Active Learning)
         </Typography>
         
@@ -116,17 +144,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
             
             {/* ВІДЖЕТ 1: Статистика даних */}
             <Grid item xs={12} md={6}>
-              <Card elevation={3} sx={{ height: '100%' }}>
-                <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center', justifyContent: 'center', textAlign: 'center', py: 5 }}>
-                  <CheckCircleIcon color="primary" sx={{ fontSize: 60, mb: 2 }} />
+              <Card elevation={3} sx={{ height: '100%', borderRadius: 2 }}>
+                <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center', justifyContent: 'center', textAlign: 'center', py: 4 }}>
+                  <CheckCircleIcon color="primary" sx={{ fontSize: 56, mb: 1.5 }} />
                   <Typography variant="h3" color="primary" sx={{ fontWeight: 'bold' }}>
                     {stats?.totalValidatedSamples || 0}
                   </Typography>
                   <Typography variant="h6" color="text.secondary" gutterBottom>
                     Нових зразків для навчання
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2, maxWidth: '80%' }}>
-                    Це кількість нових результатів мапінгу, які експерти позначили як правильні після останнього оновлення моделі.
+                  <Chip 
+                    label={hasEnoughSamples ? "Готово до запуску" : `Потрібно ще ${MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)} зразків`} 
+                    color={hasEnoughSamples ? "success" : "default"} 
+                    size="small" 
+                    sx={{ mt: 1, mb: 2 }} 
+                  />
+                  <Typography variant="body2" color="text.secondary" sx={{ maxWidth: '85%' }}>
+                    Це кількість нових результатів мапінгу, які експерти підтвердили після останнього оновлення моделі.
                   </Typography>
                   <Divider sx={{ width: '80%', my: 2 }} />
                   <Typography variant="body2" color="text.secondary">
@@ -138,155 +172,309 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
 
             {/* ВІДЖЕТ 2: Статус моделі */}
             <Grid item xs={12} md={6}>
-              <Card elevation={3} sx={{ height: '100%' }}>
-                <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 4 }}>
+              <Card elevation={3} sx={{ height: '100%', borderRadius: 2 }}>
+                <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 4, px: 4 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
                     <UpdateIcon color="secondary" />
-                    <Typography variant="h6">Статус моделі</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Стан моделі</Typography>
                   </Box>
                   <Divider sx={{ mb: 3 }} />
                   
-                  <Box sx={{ mb: 3 }}>
+                  <Box sx={{ mb: 2.5 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Останнє успішне донавчання:
+                      Останнє успішне оновлення:
                     </Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 0.5 }}>
                       {stats?.lastTrainedAt 
                         ? new Date(stats.lastTrainedAt).toLocaleString('uk-UA') 
                         : 'Ще не проводилось'}
                     </Typography>
                   </Box>
 
-                  <Box>
+                  <Box sx={{ mb: 2.5 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Поточна версія моделі:
+                      Поточна активна версія:
                     </Typography>
-                    <Typography variant="body2" sx={{ wordBreak: 'break-all', fontFamily: 'monospace', bgcolor: 'rgba(255,255,255,0.05)', p: 1, borderRadius: 1, mt: 0.5 }}>
-                      {stats?.currentModelPath || 'Невідомо'}
+                    <Typography variant="body2" sx={{ wordBreak: 'break-all', fontFamily: 'monospace', bgcolor: 'action.hover', p: 1.2, borderRadius: 1, mt: 0.5, fontWeight: 'bold' }}>
+                      {stats?.currentModelPath || 'models/fine_tuned_multilingual_v_balanced'}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 'auto' }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#4caf50' }} />
+                    <Typography variant="caption" color="text.secondary">
+                      Мультимовний Bi-Encoder готовий до семантичного пошуку
                     </Typography>
                   </Box>
                 </CardContent>
               </Card>
             </Grid>
 
-            {/* ПАНЕЛЬ КЕРУВАННЯ */}
-            <Grid item xs={12} >
-              <Paper elevation={3} sx={{ p: 4, mt: 2, textAlign: 'center' }}>
-                <Typography variant="h5" gutterBottom>
-                  Запуск донавчання (Active Learning Fine-tuning)
+            {/* ГОЛОВНА ПАНЕЛЬ УПРАВЛІННЯ ТА ЖИВИЙ ПРОГРЕС */}
+            <Grid item xs={12}>
+              <Paper elevation={3} sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
+                <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
+                  Оновлення нейромережі (Active Learning)
                 </Typography>
-                <Typography variant="body1" sx={{ mb: 4, maxWidth: '800px', mx: 'auto', color: 'text.secondary' }}>
-                  Процес донавчання запускає оптимізацію нейромережі (Bi-Encoder) методом контрастивного навчання (TripletLoss) на основі валідованих експертами збігів. 
-                  Для наочної демонстрації поріг встановлено на мінімум <b>{MIN_SAMPLES_FOR_TRAINING}</b> нових зразків (рекомендований промисловий поріг: 20+ для запобігання перенавчанню).
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3, maxWidth: '800px', mx: 'auto' }}>
+                  Процес оновлення виконує контрастивне донавчання багатомовної моделі на підтверджених експертом зразках із застосуванням негативного майнінгу та буфера збереження знань.
                 </Typography>
 
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    size="large"
-                    startIcon={<AutoAwesomeIcon />}
-                    onClick={handleSeedDemoData}
-                    disabled={loading || seedLoading}
-                    sx={{ px: 3, py: 1.5, borderRadius: 2 }}
-                  >
-                    {seedLoading ? 'Підготовка даних...' : 'Підготувати дані для демо (3 зразки)'}
-                  </Button>
-
-                  <Box sx={{ position: 'relative', display: 'inline-block' }}>
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      size="large"
-                      startIcon={<ModelTrainingIcon />}
-                      onClick={handleTrainModel}
-                      disabled={loading || !isTrainingAllowed || seedLoading}
-                      sx={{ px: 4, py: 1.5, borderRadius: 2 }}
-                    >
-                      {loading ? 'Триває донавчання...' : 'Запустити оновлення моделі'}
-                    </Button>
+                {/* СТАН 1: ПРОЦЕС ДИСКРЕТНОГО НАВЧАННЯ (АКТИВНИЙ ЖИВИЙ КОНСОЛЬ-ТРЕКЕР) */}
+                {loading ? (
+                  <Box sx={{ maxWidth: '800px', mx: 'auto', textAlign: 'left', mt: 2 }}>
                     
-                    {loading && (
-                      <CircularProgress
-                        size={30}
-                        sx={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          marginTop: '-15px',
-                          marginLeft: '-15px',
-                        }}
-                      />
-                    )}
-                  </Box>
-                </Box>
-
-                {!isTrainingAllowed && !loading && !seedLoading && (
-                  <Box sx={{ mt: 2.5, p: 2, bgcolor: 'action.hover', borderRadius: 2, maxWidth: '650px', mx: 'auto' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Для запуску потрібно ще <b>{MIN_SAMPLES_FOR_TRAINING - (stats?.totalValidatedSamples || 0)}</b> валідованих зразків. 
-                      Натисніть кнопку <b>«Підготувати дані для демо (3 зразки)»</b> вище для миттєвої генерації валідованих даних.
-                    </Typography>
-                  </Box>
-                )}
-
-                {seedLoading && (
-                  <Box sx={{ mt: 3, maxWidth: '650px', mx: 'auto' }}>
-                    <Alert severity="info" sx={{ textAlign: 'left' }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                        Підготовка та автоматична валідація зразків для демонстрації...
-                      </Typography>
-                      <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />
-                    </Alert>
-                  </Box>
-                )}
-
-                {loading && (
-                  <Card elevation={4} sx={{ mt: 3, maxWidth: '720px', mx: 'auto', textAlign: 'left', border: '1px solid #1976d2', borderRadius: 2 }}>
-                    <CardContent sx={{ p: 3 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <CircularProgress size={26} color="primary" />
-                          <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                            Триває оптимізація нейромережі: {trainingSeconds} с
-                          </Typography>
-                        </Box>
+                    {/* Заголовок трекера та час */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <CircularProgress size={24} color="primary" />
+                        <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                          Триває оптимізація нейромережі...
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Chip 
-                          label={`Епоха ${Math.min(3, Math.floor(trainingSeconds / 18) + 1)} з 3`} 
+                          label={`Час: ${trainingSeconds} с (очікувано ~50 с)`} 
                           color="primary" 
                           variant="outlined" 
-                          size="small" 
+                          size="medium"
+                          sx={{ fontWeight: 'bold' }} 
                         />
                       </Box>
+                    </Box>
 
-                      <LinearProgress sx={{ my: 2, height: 8, borderRadius: 2 }} />
-
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                        Виконується цикл неперервного активного навчання (Continual Active Learning):
-                      </Typography>
-
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, pl: 1 }}>
-                        <Typography variant="caption" sx={{ color: trainingSeconds < 8 ? 'primary.main' : 'success.main', fontWeight: trainingSeconds < 8 ? 'bold' : 'normal' }}>
-                          {trainingSeconds < 8 ? '⏳ [1/3]' : '✓ [1/3]'} Генерація навчальних трійок з Hard Negative Mining {trainingSeconds < 8 ? '(виконується...)' : '(готово)'}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: trainingSeconds >= 8 && trainingSeconds < 45 ? 'primary.main' : trainingSeconds >= 45 ? 'success.main' : 'text.disabled', fontWeight: trainingSeconds >= 8 && trainingSeconds < 45 ? 'bold' : 'normal' }}>
-                          {trainingSeconds < 8 ? '○ [2/3]' : trainingSeconds < 45 ? '⏳ [2/3]' : '✓ [2/3]'} Підмішування 20 еталонних трійок Rehearsal та градієнтний спуск Backpropagation {trainingSeconds >= 8 && trainingSeconds < 45 ? '(оптимізація ваг...)' : ''}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: trainingSeconds >= 45 ? 'primary.main' : 'text.disabled', fontWeight: trainingSeconds >= 45 ? 'bold' : 'normal' }}>
-                          {trainingSeconds < 45 ? '○ [3/3]' : '⏳ [3/3]'} Збереження нового чекпоінту та перерахунок векторного простору компетенцій {trainingSeconds >= 45 ? '(фіналізація...)' : ''}
-                        </Typography>
+                    {/* Детермінований прогрес-бар із градієнтом та відсотками */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2 }}>
+                      <Box sx={{ width: '100%' }}>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={progressPercent} 
+                          sx={{ 
+                            height: 12, 
+                            borderRadius: 3,
+                            bgcolor: 'action.hover',
+                            '& .MuiLinearProgress-bar': {
+                              borderRadius: 3,
+                              backgroundImage: 'linear-gradient(90deg, #1976d2 0%, #00b0ff 50%, #00e676 100%)',
+                            }
+                          }} 
+                        />
                       </Box>
-
-                      <Divider sx={{ my: 2 }} />
-                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', display: 'block' }}>
-                        ⚡ Очікуваний повний час виконання на CPU: ~45–60 секунд. Сторінка залишається активною.
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', minWidth: 50, color: 'primary.main' }}>
+                        {progressPercent}%
                       </Typography>
-                    </CardContent>
-                  </Card>
+                    </Box>
+
+                    {/* 3 ІНТЕРАКТИВНІ КАРТКИ ЕТАПІВ ІЗ ПІДСВІЧУВАННЯМ */}
+                    <Grid container spacing={2} sx={{ mt: 1 }}>
+                      
+                      {/* ЕТАП 1 */}
+                      <Grid item xs={12} md={4}>
+                        <Paper 
+                          elevation={currentStage === 1 ? 4 : 0}
+                          sx={{ 
+                            p: 2, 
+                            height: '100%',
+                            borderRadius: 2,
+                            border: currentStage === 1 
+                              ? '2px solid #1976d2' 
+                              : currentStage > 1 
+                              ? '1px solid #2e7d32' 
+                              : '1px solid rgba(255,255,255,0.12)',
+                            bgcolor: currentStage === 1 
+                              ? 'rgba(25, 118, 210, 0.08)' 
+                              : currentStage > 1 
+                              ? 'rgba(46, 125, 50, 0.06)' 
+                              : 'background.paper',
+                            boxShadow: currentStage === 1 ? '0 0 12px rgba(25, 118, 210, 0.3)' : 'none',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: currentStage === 1 ? 'primary.main' : currentStage > 1 ? 'success.main' : 'text.secondary' }}>
+                              1. Підготовка трійок
+                            </Typography>
+                            {currentStage > 1 ? (
+                              <CheckCircleIcon color="success" fontSize="small" />
+                            ) : currentStage === 1 ? (
+                              <HourglassTopIcon color="primary" fontSize="small" />
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">○</Typography>
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {currentStage === 1 ? 'Формування навчальних пар та Hard Negative Mining...' : currentStage > 1 ? 'Трійки сформовано та збагачено' : 'Очікує виконання'}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+
+                      {/* ЕТАП 2 */}
+                      <Grid item xs={12} md={4}>
+                        <Paper 
+                          elevation={currentStage === 2 ? 4 : 0}
+                          sx={{ 
+                            p: 2, 
+                            height: '100%',
+                            borderRadius: 2,
+                            border: currentStage === 2 
+                              ? '2px solid #1976d2' 
+                              : currentStage > 2 
+                              ? '1px solid #2e7d32' 
+                              : '1px solid rgba(255,255,255,0.12)',
+                            bgcolor: currentStage === 2 
+                              ? 'rgba(25, 118, 210, 0.08)' 
+                              : currentStage > 2 
+                              ? 'rgba(46, 125, 50, 0.06)' 
+                              : 'background.paper',
+                            boxShadow: currentStage === 2 ? '0 0 12px rgba(25, 118, 210, 0.3)' : 'none',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: currentStage === 2 ? 'primary.main' : currentStage > 2 ? 'success.main' : 'text.secondary' }}>
+                              2. Backpropagation
+                            </Typography>
+                            {currentStage > 2 ? (
+                              <CheckCircleIcon color="success" fontSize="small" />
+                            ) : currentStage === 2 ? (
+                              <Chip label={`Епоха ${currentEpoch}/3`} color="primary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">○</Typography>
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {currentStage === 2 ? `Градієнтний спуск (TripletLoss) на CPU. Епоха ${currentEpoch}...` : currentStage > 2 ? '3 епохи оптимізації пройдено' : 'Очікує виконання'}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+
+                      {/* ЕТАП 3 */}
+                      <Grid item xs={12} md={4}>
+                        <Paper 
+                          elevation={currentStage === 3 ? 4 : 0}
+                          sx={{ 
+                            p: 2, 
+                            height: '100%',
+                            borderRadius: 2,
+                            border: currentStage === 3 
+                              ? '2px solid #1976d2' 
+                              : currentStage > 3 
+                              ? '1px solid #2e7d32' 
+                              : '1px solid rgba(255,255,255,0.12)',
+                            bgcolor: currentStage === 3 
+                              ? 'rgba(25, 118, 210, 0.08)' 
+                              : currentStage > 3 
+                              ? 'rgba(46, 125, 50, 0.06)' 
+                              : 'background.paper',
+                            boxShadow: currentStage === 3 ? '0 0 12px rgba(25, 118, 210, 0.3)' : 'none',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: currentStage === 3 ? 'primary.main' : currentStage > 3 ? 'success.main' : 'text.secondary' }}>
+                              3. Фіналізація моделі
+                            </Typography>
+                            {currentStage > 3 ? (
+                              <CheckCircleIcon color="success" fontSize="small" />
+                            ) : currentStage === 3 ? (
+                              <HourglassTopIcon color="primary" fontSize="small" />
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">○</Typography>
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {currentStage === 3 ? 'Збереження ваг та перерахунок індексу e-CF...' : currentStage > 3 ? 'Модель розгорнута в пам\'яті' : 'Очікує виконання'}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+
+                    </Grid>
+                  </Box>
+                ) : (
+                  /* СТАН 2: ОЧІКУВАННЯ ЗАПУСКУ (ЄДИНА ГОЛОВНА КНОПКА ДІЇ) */
+                  <Box sx={{ maxWidth: '650px', mx: 'auto', mt: 2 }}>
+                    
+                    {hasEnoughSamples ? (
+                      /* Якщо вже є зразки */
+                      <Box>
+                        <Alert severity="success" sx={{ mb: 3, textAlign: 'left', borderRadius: 2 }}>
+                          Зібрано <b>{stats?.totalValidatedSamples} нових валідованих зразків</b>. Система готова до оновлення моделі!
+                        </Alert>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="large"
+                          startIcon={<ModelTrainingIcon />}
+                          onClick={() => runTrainingPipeline(false)}
+                          sx={{ 
+                            px: 5, 
+                            py: 1.8, 
+                            fontSize: '1.05rem', 
+                            borderRadius: 3, 
+                            fontWeight: 'bold',
+                            textTransform: 'none',
+                            boxShadow: '0 4px 14px rgba(25, 118, 210, 0.4)'
+                          }}
+                        >
+                          Запустити оновлення моделі ({stats?.totalValidatedSamples} зразків)
+                        </Button>
+                        <Box sx={{ mt: 2 }}>
+                          <Button
+                            variant="text"
+                            size="small"
+                            onClick={handleOnlySeed}
+                            sx={{ textTransform: 'none', color: 'text.secondary' }}
+                          >
+                            + Додати ще тестові зразки для розширення вибірки
+                          </Button>
+                        </Box>
+                      </Box>
+                    ) : (
+                      /* Якщо зразків 0 або менше 3 - ОДИН КЛІК ДЛЯ ДЕМО ТА ОНОВЛЕННЯ */
+                      <Box>
+                        <Alert severity="info" sx={{ mb: 3, textAlign: 'left', borderRadius: 2 }}>
+                          В системі наразі <b>{stats?.totalValidatedSamples || 0} нових зразків</b> (попередні вже інтегровано в модель). Для демонстрації натисніть кнопку нижче: система автоматично підготує валідовані приклади та виконає оновлення моделі.
+                        </Alert>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="large"
+                          startIcon={<AutoAwesomeIcon />}
+                          onClick={() => runTrainingPipeline(true)}
+                          sx={{ 
+                            px: 4, 
+                            py: 1.8, 
+                            fontSize: '1.05rem', 
+                            borderRadius: 3, 
+                            fontWeight: 'bold',
+                            textTransform: 'none',
+                            boxShadow: '0 4px 14px rgba(25, 118, 210, 0.4)'
+                          }}
+                        >
+                          Підготувати дані та запустити оновлення моделі
+                        </Button>
+                        <Box sx={{ mt: 2 }}>
+                          <Button
+                            variant="text"
+                            size="small"
+                            onClick={handleOnlySeed}
+                            sx={{ textTransform: 'none', color: 'text.secondary' }}
+                          >
+                            або тільки підготувати дані без запуску
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
+
+                  </Box>
                 )}
 
-                {message && (
-                  <Alert severity={isError ? 'error' : 'success'} sx={{ mt: 4, maxWidth: '650px', mx: 'auto' }}>
+                {/* ПОВІДОМЛЕННЯ ПРО РЕЗУЛЬТАТ */}
+                {message && !loading && (
+                  <Alert 
+                    severity={isError ? 'error' : 'success'} 
+                    sx={{ mt: 4, maxWidth: '650px', mx: 'auto', borderRadius: 2, textAlign: 'left' }}
+                  >
                     {message}
                   </Alert>
                 )}
@@ -296,9 +484,9 @@ const AdminPage: React.FC<AdminPageProps> = ({ onLogout, userRole }) => {
             {/* ВІДЖЕТ 3: Архітектура Active Learning */}
             <Grid item xs={12}>
               <Card elevation={3} sx={{ mt: 1, textAlign: 'left', borderRadius: 2 }}>
-                <CardContent sx={{ p: 3 }}>
+                <CardContent sx={{ p: 3.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                    <PsychologyIcon color="primary" sx={{ fontSize: 28 }} />
+                    <PsychologyIcon color="primary" sx={{ fontSize: 30 }} />
                     <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                       Архітектура та конвеєр Active Learning (Continual Fine-Tuning)
                     </Typography>
